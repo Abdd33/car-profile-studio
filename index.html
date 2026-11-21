@@ -1,0 +1,1795 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>智能汽车侧面轮廓感性生成系统 — Design Pipeline</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./assets/layout.css">
+  <script src="./assets/three.min.js"></script>
+  <style>
+    :root{
+      --bg:#eef1f5;
+      --bg-2:#e7ebf1;
+      --panel:#ffffff;
+      --panel-2:#f6f8fb;
+      --ink:#16202e;          /* primary text / contour line */
+      --ink-2:#475467;
+      --ink-faint:#8b96a8;
+      --line:#dde3ec;
+      --line-soft:#e9edf3;
+      --blue:#1f5fd6;         /* engineering blue accent */
+      --blue-2:#2f74f0;
+      --blue-soft:#eaf1fe;
+      --blue-deep:#0f3f9e;
+      --amber:#c77d12;        /* warm secondary, used sparingly */
+      --grid:#dfe5ee;
+      --ok:#1f9d6b;
+    }
+
+    *{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+    html,body{ height:100%; }
+    body{
+      font-family:'Noto Sans SC','Space Grotesk',system-ui,sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+    }
+    .font-display{ font-family:'Space Grotesk','Noto Sans SC',sans-serif; }
+    .font-mono{ font-family:'JetBrains Mono',ui-monospace,monospace; }
+
+    /* blueprint backdrop */
+    .studio-bg::before{
+      content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size:30px 30px;
+      mask-image:radial-gradient(ellipse 130% 100% at 50% 0%, #000 25%, transparent 78%);
+      opacity:.5;
+    }
+    .studio-bg::after{
+      content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+      background:
+        radial-gradient(680px 300px at 10% -6%, rgba(31,95,214,.07), transparent 60%),
+        radial-gradient(560px 320px at 96% 6%, rgba(47,116,240,.05), transparent 60%);
+    }
+    .layer{ position:relative; z-index:1; }
+
+    .label-eyebrow{
+      font-family:'JetBrains Mono',monospace;
+      text-transform:uppercase; letter-spacing:.22em;
+      font-size:10px; color:var(--ink-faint);
+    }
+    .hairline{ border-color:var(--line); }
+
+    .card{
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:14px;
+      box-shadow:0 1px 2px rgba(16,32,54,.04), 0 8px 24px -16px rgba(16,32,54,.18);
+    }
+    .card-inset{
+      background:
+        linear-gradient(180deg,#fbfcfe,#f4f7fb);
+      border:1px solid var(--line);
+      border-radius:14px;
+      box-shadow:inset 0 1px 0 #fff, inset 0 0 0 1px rgba(255,255,255,.4);
+    }
+
+    /* ---------- sliders ---------- */
+    input[type="range"]{
+      -webkit-appearance:none; appearance:none;
+      width:100%; height:4px; border-radius:999px; background:transparent; outline:none;
+    }
+    input[type="range"]::-webkit-slider-thumb{
+      -webkit-appearance:none; appearance:none;
+      width:15px; height:15px; border-radius:50%;
+      background:#fff; border:2px solid var(--blue);
+      box-shadow:0 1px 4px rgba(16,32,54,.25), 0 0 0 3px rgba(31,95,214,.14);
+      cursor:pointer; transition:transform .14s ease, box-shadow .14s ease;
+    }
+    input[type="range"]:hover::-webkit-slider-thumb{ box-shadow:0 1px 6px rgba(16,32,54,.3), 0 0 0 5px rgba(31,95,214,.16); }
+    input[type="range"]:active::-webkit-slider-thumb{ transform:scale(1.14); }
+    input[type="range"]::-moz-range-thumb{
+      width:15px; height:15px; border-radius:50%;
+      background:#fff; border:2px solid var(--blue);
+      box-shadow:0 1px 4px rgba(16,32,54,.25); cursor:pointer;
+    }
+    .track{ background:var(--line); }
+
+    input[type="number"]{
+      background:#fff; border:1px solid var(--line); color:var(--ink);
+    }
+    input[type="number"]:focus{ border-color:var(--blue); outline:none; }
+
+    /* buttons */
+    .btn-primary{
+      background:linear-gradient(180deg,var(--blue-2),var(--blue));
+      color:#fff; border:1px solid var(--blue-deep);
+      box-shadow:0 8px 20px -8px rgba(31,95,214,.5), inset 0 1px 0 rgba(255,255,255,.3);
+      transition:transform .12s ease, box-shadow .2s ease, filter .2s ease;
+    }
+    .btn-primary:hover{ filter:brightness(1.05); box-shadow:0 10px 26px -8px rgba(31,95,214,.6); }
+    .btn-primary:active{ transform:translateY(1px); }
+
+    .btn-blueghost{
+      background:var(--blue-soft); color:var(--blue-deep);
+      border:1px solid #cfe0fb;
+      transition:all .14s ease;
+    }
+    .btn-blueghost:hover{ background:#dfeafd; }
+    .btn-blueghost:active{ transform:translateY(1px); }
+
+    .btn-ghost{
+      background:#fff; border:1px solid var(--line); color:var(--ink-2);
+      transition:all .14s ease;
+    }
+    .btn-ghost:hover:not(:disabled){ border-color:var(--blue); color:var(--blue); background:var(--blue-soft); }
+    .btn-ghost:disabled{ opacity:.4; cursor:not-allowed; }
+
+    .chip{ background:var(--blue-soft); border:1px solid #cfe0fb; color:var(--blue-deep); }
+    .chip-amber{ background:#fbf3e6; border:1px solid #f0dcb8; color:var(--amber); }
+
+    .status-dot{
+      width:7px;height:7px;border-radius:50%;background:var(--ok);
+      box-shadow:0 0 0 3px rgba(31,157,107,.18); animation:pulse 2.2s ease-in-out infinite;
+    }
+    @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.45} }
+
+    ::selection{ background:rgba(31,95,214,.18); }
+    ::-webkit-scrollbar{ width:10px; height:10px; }
+    ::-webkit-scrollbar-thumb{ background:#cdd6e3; border-radius:10px; border:2px solid var(--bg); }
+    ::-webkit-scrollbar-track{ background:transparent; }
+
+    .reveal{ animation:reveal .55s cubic-bezier(.2,.7,.2,1) both; }
+    @keyframes reveal{ from{ opacity:0; transform:translateY(8px);} to{ opacity:1; transform:none;} }
+
+    /* ===== workflow stepper ===== */
+    .step{
+      display:flex; align-items:center; gap:8px;
+      padding:6px 12px; border-radius:10px; white-space:nowrap;
+      font-size:12px; cursor:pointer; transition:all .15s ease;
+      border:1px solid transparent; color:var(--ink-faint);
+    }
+    .step .num{
+      width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+      font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;
+      background:#e3e9f2;color:var(--ink-faint);transition:all .15s ease;
+    }
+    .step:hover{ background:#fff; color:var(--ink-2); border-color:var(--line); }
+    .step.active{
+      background:#fff; color:var(--blue-deep); border-color:#cfe0fb;
+      box-shadow:0 2px 8px -2px rgba(31,95,214,.25);
+    }
+    .step.active .num{ background:var(--blue); color:#fff; }
+    .step.done .num{ background:var(--ok); color:#fff; }
+    .step.done{ color:var(--ink-2); }
+    .step-sep{ color:#c7d0dd; flex:none; }
+
+    /* ===== slider value bubble ===== */
+    .bubble{
+      position:absolute; top:-30px; left:50%; transform:translateX(-50%) scale(.9);
+      background:var(--ink); color:#fff; font-family:'JetBrains Mono',monospace;
+      font-size:10px; padding:3px 7px; border-radius:6px; white-space:nowrap;
+      opacity:0; pointer-events:none; transition:opacity .12s ease, transform .12s ease;
+      z-index:30;
+    }
+    .bubble::after{
+      content:""; position:absolute; left:50%; top:100%; transform:translateX(-50%);
+      border:4px solid transparent; border-top-color:var(--ink);
+    }
+    .slider-wrap:hover .bubble, .slider-wrap.dragging .bubble{ opacity:1; transform:translateX(-50%) scale(1); }
+
+    /* ===== preset pills ===== */
+    .preset{
+      flex:1; text-align:center; font-size:11px; padding:7px 4px; border-radius:9px;
+      border:1px solid var(--line); background:#fff; color:var(--ink-2);
+      cursor:pointer; transition:all .14s ease;
+    }
+    .preset:hover{ border-color:var(--blue); color:var(--blue); background:var(--blue-soft); transform:translateY(-1px); }
+
+    /* history cards */
+    .hist-card{
+      border:1px solid var(--line); border-radius:11px; background:#fff; padding:10px;
+      cursor:pointer; transition:all .14s ease;
+    }
+    .hist-card:hover{ border-color:var(--blue); box-shadow:0 6px 16px -10px rgba(31,95,214,.4); }
+    .hist-card.pinned{ border-color:#f0dcb8; background:#fffdf8; }
+
+    /* collapse animation for right panel */
+    #pareto_section{ transition:width .32s cubic-bezier(.2,.7,.2,1), padding .32s ease, opacity .25s ease; }
+    #project_section{ transition:width .32s cubic-bezier(.2,.7,.2,1); }
+
+    /* ===== topbar ===== */
+    .topbar{
+      height:60px; flex:none;
+      display:flex; align-items:center; justify-content:space-between;
+      gap:16px; padding-left:20px; padding-right:20px;
+      background:linear-gradient(180deg,#ffffff,#f7f9fc);
+      border-bottom:1px solid var(--line);
+      box-shadow:0 1px 0 rgba(255,255,255,.6), 0 6px 20px -16px rgba(16,32,54,.25);
+    }
+    .topbar > div{ display:flex; align-items:center; }
+    .topbar-icon-btn{
+      width:34px;height:34px;border-radius:10px;flex:none;
+      display:flex;align-items:center;justify-content:center;
+      background:#fff;border:1px solid var(--line);color:var(--ink-2);
+      transition:all .15s ease;cursor:pointer;
+    }
+    .topbar-icon-btn:hover{ border-color:var(--blue);color:var(--blue);background:var(--blue-soft); }
+    .topbar-icon-btn:active{ transform:translateY(1px); }
+    .brand-mark{
+      width:42px;height:42px;border-radius:13px;flex:none;
+      display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(160deg,#ffffff,#eef4fe);
+      border:1px solid #d6e3fb;
+      box-shadow:0 2px 8px -3px rgba(31,95,214,.3), inset 0 1px 0 #fff;
+    }
+    .topbar-tag{
+      padding:4px 9px;border-radius:8px;background:#fff;border:1px solid var(--line);
+      color:var(--ink-2);letter-spacing:.02em;
+    }
+    .topbar-tag span{ margin-right:5px;letter-spacing:.12em; }
+
+    /* ===== 2D/3D toggle + 3D controls ===== */
+    .view-seg{
+      font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600;
+      padding:4px 11px; border-radius:7px; color:var(--ink-faint);
+      background:transparent; border:none; cursor:pointer; transition:all .14s ease;
+    }
+    .view-seg.active{ background:#fff; color:var(--blue-deep); box-shadow:0 1px 3px rgba(16,32,54,.12); }
+    .view-seg:not(.active):hover{ color:var(--ink-2); }
+    .view3d-ctrl{
+      min-width:26px; height:26px; border-radius:7px;
+      background:rgba(255,255,255,.92); border:1px solid var(--line); color:var(--ink-2);
+      font-size:13px; font-family:'JetBrains Mono',monospace; cursor:pointer;
+      display:inline-flex; align-items:center; justify-content:center; transition:all .14s ease;
+      backdrop-filter:blur(8px);
+    }
+    .view3d-ctrl:hover{ border-color:var(--blue); color:var(--blue); }
+    .view3d-ctrl.on{ background:var(--blue-soft); border-color:var(--blue); color:var(--blue-deep); }
+    .view3d-readout{
+      font-size:10px; color:var(--ink-faint); padding:0 6px; height:26px;
+      display:inline-flex; align-items:center; background:rgba(255,255,255,.9);
+      border:1px solid var(--line); border-radius:7px; backdrop-filter:blur(8px);
+    }
+    .collapsed-rail{
+      width:46px; display:flex; flex-direction:column; align-items:center; gap:14px;
+      padding-top:16px; cursor:pointer;
+    }
+
+    /* demo overlay */
+    .demo-overlay{
+      position:fixed; inset:0; z-index:60; background:rgba(16,32,54,.42);
+      backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center;
+      opacity:0; pointer-events:none; transition:opacity .2s ease;
+    }
+    .demo-overlay.open{ opacity:1; pointer-events:auto; }
+    .demo-card{
+      width:min(760px,92vw); max-height:84vh; overflow:auto;
+      background:var(--panel); border:1px solid var(--line); border-radius:18px;
+      box-shadow:0 30px 80px -30px rgba(16,32,54,.5);
+      transform:translateY(12px) scale(.98); transition:transform .22s cubic-bezier(.2,.7,.2,1);
+    }
+    .demo-overlay.open .demo-card{ transform:none; }
+
+    .mini-flow line, .mini-flow rect{ vector-effect:non-scaling-stroke; }
+
+    .toast{
+      position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
+      background:var(--ink); color:#fff; font-size:12.5px; padding:9px 16px; border-radius:10px;
+      box-shadow:0 12px 30px -10px rgba(16,32,54,.5); opacity:0; pointer-events:none;
+      transition:all .25s cubic-bezier(.2,.7,.2,1); z-index:80; display:flex; align-items:center; gap:8px;
+    }
+
+    /* layout fallback (in case CDN JIT is slow) */
+    main{ display:flex; }
+    main > aside, main > section{ height:100%; }
+    #pareto_inner{ display:flex; flex-direction:column; }
+
+    .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body class="studio-bg h-screen flex flex-col overflow-hidden">
+
+<!-- ============ Top bar ============ -->
+<header class="topbar layer flex items-center justify-between px-5">
+  <!-- left: collapse toggle + brand -->
+  <div class="flex items-center gap-3.5 min-w-0">
+    <button id="btn_toggle_project" class="topbar-icon-btn" title="收起 / 展开 项目栏">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="16" rx="2.5"/><line x1="9" y1="4" x2="9" y2="20"/>
+      </svg>
+    </button>
+
+    <div class="brand-mark">
+      <svg width="26" height="26" viewBox="0 0 40 40" fill="none">
+        <defs>
+          <linearGradient id="markGrad" x1="0" y1="0" x2="40" y2="40">
+            <stop offset="0" stop-color="#2f74f0"/><stop offset="1" stop-color="#0f3f9e"/>
+          </linearGradient>
+        </defs>
+        <!-- side-profile curve mark -->
+        <path d="M6 27 C10 27 12 25.5 16 21 C20.5 16 26 13.5 33 17"
+              fill="none" stroke="url(#markGrad)" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M6 31 H34" stroke="#9aa6b6" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="2.5 3"/>
+        <circle cx="14" cy="31" r="2.4" fill="#fff" stroke="url(#markGrad)" stroke-width="1.8"/>
+        <circle cx="28" cy="31" r="2.4" fill="#fff" stroke="url(#markGrad)" stroke-width="1.8"/>
+        <circle cx="33" cy="17" r="1.8" fill="#2f74f0"/>
+      </svg>
+    </div>
+
+    <div class="leading-tight min-w-0">
+      <div class="label-eyebrow flex items-center gap-1.5">
+        <span style="color:var(--blue)">Morphing Studio</span>
+        <span style="color:var(--ink-faint)">/ Side-Profile Generator</span>
+      </div>
+      <div class="text-[15px] font-semibold font-display tracking-tight truncate">智能汽车侧面轮廓感性生成系统</div>
+    </div>
+  </div>
+
+  <!-- right: meta + status -->
+  <div class="flex items-center gap-2.5">
+    <div class="hidden lg:flex items-center gap-2 font-mono text-[11px]">
+      <span class="topbar-tag"><span style="color:var(--ink-faint)">PROJ</span> EV-COUPE-X7</span>
+      <span class="topbar-tag"><span style="color:var(--ink-faint)">BUILD</span> 2.4.0</span>
+    </div>
+    <span class="px-2.5 py-1 rounded-full chip text-[11px] font-medium font-mono flex items-center gap-1.5">
+      <span class="status-dot"></span> 算法已就绪
+    </span>
+  </div>
+</header>
+
+<!-- ============ Main layout ============ -->
+<main class="flex flex-1 overflow-hidden layer">
+
+  <!-- ===== Project meta sidebar (collapsible) ===== -->
+  <aside id="project_section" class="w-[208px] flex-none hairline border-r bg-white/70 overflow-hidden reveal">
+    <div id="project_inner" class="p-4 flex flex-col gap-4 h-full overflow-y-auto">
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <div class="label-eyebrow">Project</div>
+          <button id="btn_collapse_project" class="btn-ghost rounded-md p-1" title="收起项目栏">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+        </div>
+        <div class="card p-3 space-y-2.5">
+          <div class="aspect-[16/9] rounded-lg flex items-center justify-center overflow-hidden"
+               style="background:linear-gradient(135deg,#eaf1fe,#f4f7fb);border:1px solid var(--line)">
+            <svg width="90" height="40" viewBox="0 0 120 52" fill="none">
+              <path d="M6 40 C14 40 18 38 26 30 C34 22 44 16 60 16 C78 16 92 22 104 30 L114 40" stroke="var(--blue)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+              <line x1="4" y1="44" x2="116" y2="44" stroke="#c7d0dd" stroke-width="1.4" stroke-dasharray="3 4"/>
+              <circle cx="34" cy="44" r="5.5" fill="none" stroke="var(--ink-2)" stroke-width="2"/>
+              <circle cx="92" cy="44" r="5.5" fill="none" stroke="var(--ink-2)" stroke-width="2"/>
+            </svg>
+          </div>
+          <div>
+            <div class="text-[13px] font-semibold font-display">EV-Coupe X7</div>
+            <div class="text-[11px]" style="color:var(--ink-faint)">纯电运动轿跑 · 概念阶段</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-2 text-[11px]">
+        <div class="label-eyebrow mb-1">Meta</div>
+        <div class="flex justify-between py-1.5 hairline border-b" style="border-color:var(--line-soft)"><span style="color:var(--ink-faint)">车型代号</span><span class="font-mono">X7-CPE</span></div>
+        <div class="flex justify-between py-1.5 hairline border-b" style="border-color:var(--line-soft)"><span style="color:var(--ink-faint)">设计师</span><span>Studio · CMF-A</span></div>
+        <div class="flex justify-between py-1.5 hairline border-b" style="border-color:var(--line-soft)"><span style="color:var(--ink-faint)">阶段</span><span style="color:var(--blue)">Concept / Theme</span></div>
+        <div class="flex justify-between py-1.5 hairline border-b" style="border-color:var(--line-soft)"><span style="color:var(--ink-faint)">迭代版本</span><span class="font-mono">v0.12</span></div>
+        <div class="flex justify-between py-1.5"><span style="color:var(--ink-faint)">目标 Cd</span><span class="font-mono" style="color:var(--amber)">≤ 0.24</span></div>
+      </div>
+
+      <div class="mt-auto">
+        <div class="label-eyebrow mb-2">Pipeline 进度</div>
+        <div class="h-1.5 rounded-full overflow-hidden" style="background:var(--line)">
+          <div class="h-full" style="width:42%;background:linear-gradient(90deg,var(--blue),var(--blue-2))"></div>
+        </div>
+        <div class="text-[10px] mt-1.5 font-mono" style="color:var(--ink-faint)">3 / 7 阶段 · 42%</div>
+      </div>
+    </div>
+
+    <!-- collapsed rail -->
+    <div id="project_rail" class="collapsed-rail hidden" title="展开项目栏">
+      <button id="btn_expand_project" class="btn-ghost rounded-lg p-1.5">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+      <div class="font-mono text-[10px]" style="writing-mode:vertical-rl;color:var(--ink-faint);letter-spacing:.2em">PROJECT 项目信息</div>
+    </div>
+  </aside>
+
+  <!-- ===== Left controls (ORIGINAL Sidebar) ===== -->
+  <section class="w-[300px] flex-none hairline border-r bg-white/55 p-5 flex flex-col gap-5 overflow-y-auto reveal" style="animation-delay:.04s">
+    <div>
+      <div class="label-eyebrow mb-1.5">Kansei Control</div>
+      <h2 class="text-[15px] font-semibold font-display">感性意象控制</h2>
+      <p class="text-xs leading-relaxed mt-1.5" style="color:var(--ink-2)">
+        通过四组感性词对滑块，实时驱动车侧轮廓线的参数化形变。
+      </p>
+    </div>
+
+    <!-- presets -->
+    <div>
+      <div class="label-eyebrow mb-2">感性预设</div>
+      <div class="flex gap-2" id="preset_row">
+        <button class="preset" data-preset="sport">运动型</button>
+        <button class="preset" data-preset="luxury">豪华型</button>
+        <button class="preset" data-preset="family">家用型</button>
+      </div>
+    </div>
+
+    <div class="space-y-4">
+      <!-- 稳重 / 灵动 -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center text-[11px]" style="color:var(--ink-2)">
+          <span class="font-medium">稳重</span>
+          <span class="font-mono text-[10px] px-1.5 py-0.5 rounded" style="background:var(--panel-2);color:var(--ink-faint)" id="word_stableDynamic">中性</span>
+          <span class="font-medium">灵动</span>
+        </div>
+        <div class="relative h-4 flex items-center slider-wrap" data-bubble="bubble_stableDynamic">
+          <div class="absolute inset-x-0 h-1 rounded-full track"></div>
+          <span class="bubble" id="bubble_stableDynamic">0.0</span>
+          <input id="slider_stableDynamic" type="range" min="-3" max="3" step="0.1" value="0" class="relative z-10" />
+        </div>
+      </div>
+      <!-- 传统 / 现代 -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center text-[11px]" style="color:var(--ink-2)">
+          <span class="font-medium">传统</span>
+          <span class="font-mono text-[10px] px-1.5 py-0.5 rounded" style="background:var(--panel-2);color:var(--ink-faint)" id="word_traditionalModern">中性</span>
+          <span class="font-medium">现代</span>
+        </div>
+        <div class="relative h-4 flex items-center slider-wrap" data-bubble="bubble_traditionalModern">
+          <div class="absolute inset-x-0 h-1 rounded-full track"></div>
+          <span class="bubble" id="bubble_traditionalModern">1.0</span>
+          <input id="slider_traditionalModern" type="range" min="-3" max="3" step="0.1" value="1" class="relative z-10" />
+        </div>
+      </div>
+      <!-- 朴实 / 豪华 -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center text-[11px]" style="color:var(--ink-2)">
+          <span class="font-medium">朴实</span>
+          <span class="font-mono text-[10px] px-1.5 py-0.5 rounded" style="background:var(--panel-2);color:var(--ink-faint)" id="word_plainLuxury">中性</span>
+          <span class="font-medium">豪华</span>
+        </div>
+        <div class="relative h-4 flex items-center slider-wrap" data-bubble="bubble_plainLuxury">
+          <div class="absolute inset-x-0 h-1 rounded-full track"></div>
+          <span class="bubble" id="bubble_plainLuxury">0.5</span>
+          <input id="slider_plainLuxury" type="range" min="-3" max="3" step="0.1" value="0.5" class="relative z-10" />
+        </div>
+      </div>
+      <!-- 柔和 / 凌厉 -->
+      <div class="space-y-1.5">
+        <div class="flex justify-between items-center text-[11px]" style="color:var(--ink-2)">
+          <span class="font-medium">柔和</span>
+          <span class="font-mono text-[10px] px-1.5 py-0.5 rounded" style="background:var(--panel-2);color:var(--ink-faint)" id="word_softSharp">中性</span>
+          <span class="font-medium">凌厉</span>
+        </div>
+        <div class="relative h-4 flex items-center slider-wrap" data-bubble="bubble_softSharp">
+          <div class="absolute inset-x-0 h-1 rounded-full track"></div>
+          <span class="bubble" id="bubble_softSharp">0.5</span>
+          <input id="slider_softSharp" type="range" min="-3" max="3" step="0.1" value="0.5" class="relative z-10" />
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-auto space-y-3 pt-1">
+      <button id="btn_optimize"
+        class="btn-primary w-full inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold py-3 font-display">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l2.09 6.26L21 9.27l-4.91 3.58L17.18 21 12 17.77 6.82 21l1.09-8.15L3 9.27l6.91-0.01L12 3z"/>
+        </svg>
+        <span id="btn_optimize_text">开始生成 Start Generation</span>
+      </button>
+
+      <!-- staged optimization progress -->
+      <div>
+        <div class="h-1.5 rounded-full overflow-hidden" style="background:var(--line)">
+          <div id="progress_bar" class="h-full transition-all duration-2000 w-0"
+               style="background:linear-gradient(90deg,var(--blue),var(--blue-2))"></div>
+        </div>
+        <div id="opt_stage" class="text-[10px] mt-1.5 font-mono h-3" style="color:var(--ink-faint)"></div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div class="card-inset px-3 py-2.5">
+          <div class="label-eyebrow mb-1">情感得分</div>
+          <div class="font-mono text-base font-semibold" style="color:var(--blue)"><span id="emo_score">--</span></div>
+        </div>
+        <div class="card-inset px-3 py-2.5">
+          <div class="label-eyebrow mb-1">Cd 预估</div>
+          <div class="font-mono text-base font-semibold" style="color:var(--amber)"><span id="cd_estimate">--</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Center workspace (ORIGINAL) ===== -->
+  <section class="flex-1 min-w-0 flex flex-col hairline border-r reveal" style="animation-delay:.08s">
+    <!-- preview -->
+    <div class="flex-1 p-5 hairline border-b flex flex-col gap-3.5" style="background:linear-gradient(180deg,#fbfcfe,#f3f6fa)">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="label-eyebrow mb-1">Surrogate Preview</div>
+          <h2 class="text-[15px] font-semibold font-display">代理模型 · 车侧轮廓预览</h2>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <div class="inline-flex rounded-lg p-0.5 mr-1" style="background:var(--panel-2);border:1px solid var(--line)" id="view_toggle">
+            <button id="btn_view_2d" class="view-seg active" data-view="2d">2D</button>
+            <button id="btn_view_3d" class="view-seg" data-view="3d">3D</button>
+          </div>
+          <button id="btn_export_dxf" class="btn-ghost inline-flex items-center gap-1 rounded-lg text-[11px] font-medium py-1.5 px-2.5 font-mono" disabled title="导出 DXF 格式（通用 CAD 交换格式）">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            DXF
+          </button>
+          <button id="btn_export_3dm" class="btn-ghost inline-flex items-center gap-1 rounded-lg text-[11px] font-medium py-1.5 px-2.5 font-mono" disabled title="导出 Rhino 原生 3DM 格式">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            3DM
+          </button>
+          <button id="btn_export_png" class="btn-ghost inline-flex items-center gap-1 rounded-lg text-[11px] font-medium py-1.5 px-2.5 font-mono" disabled title="导出预览图片 (PNG)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            PNG
+          </button>
+        </div>
+      </div>
+
+      <div class="relative flex-1 card-inset overflow-hidden">
+        <svg id="car_svg" viewBox="0 0 400 200" class="w-full h-full" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <clipPath id="clipAboveChassis"><rect id="clipRectChassis" x="0" y="0" width="400" height="200"/></clipPath>
+            <pattern id="studioGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M20 0 H0 V20" fill="none" stroke="#e3e9f2" stroke-width="0.7"/>
+            </pattern>
+          </defs>
+          <rect x="0" y="0" width="400" height="200" fill="url(#studioGrid)"/>
+          <line id="car_ground_ref" x1="20" y1="150" x2="380" y2="150" stroke="#9aa6b6" stroke-width="1" stroke-dasharray="4 6"/>
+          <line id="car_chassis_line" stroke="#16202e" stroke-width="2" stroke-linecap="round" visibility="hidden"/>
+          <path id="car_path_top" fill="none" stroke="#1f5fd6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#clipAboveChassis)"/>
+          <path id="car_path_roof" fill="none" stroke="#e0322f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" visibility="hidden"/>
+        </svg>
+
+        <!-- 3D 视图层（默认隐藏，纯前端拉伸演示） -->
+        <div id="view3d_layer" class="absolute inset-0 hidden" style="z-index:15">
+          <canvas id="car_canvas3d" class="w-full h-full block" style="cursor:grab"></canvas>
+
+          <!-- 顶部：旋转 / 车轮 / 颜色 -->
+          <div class="absolute right-3 top-3 flex items-center gap-1.5 flex-wrap justify-end" style="z-index:17;max-width:74%">
+            <button id="btn_spin3d" class="view3d-ctrl" title="自动旋转" style="width:auto;padding:0 8px">⟳ 旋转</button>
+            <button id="btn_wheels" class="view3d-ctrl on" title="显示/隐藏车轮" style="width:auto;padding:0 8px">◉ 车轮</button>
+            <button id="btn_spine" class="view3d-ctrl on" title="标红中轴侧轮廓线" style="width:auto;padding:0 8px;color:#e0322f">━ 中轴线</button>
+            <button id="btn_roofh" class="view3d-ctrl on" title="标注车顶高度 Roof H" style="width:auto;padding:0 8px">⤒ Roof H</button>
+            <button id="btn_resetview" class="view3d-ctrl" title="复位视角" style="width:auto;padding:0 8px">⊹ 复位</button>
+            <div class="relative">
+              <button id="btn_color" class="view3d-ctrl" title="模型颜色" style="width:auto;padding:0 8px;gap:6px">
+                <span id="color_dot" style="width:12px;height:12px;border-radius:50%;background:#c7cdd6;border:1px solid rgba(0,0,0,.15);display:inline-block"></span>
+                颜色
+              </button>
+              <!-- 颜色面板 -->
+              <div id="color_panel" class="hidden absolute right-0 mt-1.5 p-2.5 rounded-xl" style="z-index:18;background:#fff;border:1px solid var(--line);box-shadow:0 12px 30px -10px rgba(16,32,54,.35);width:184px">
+                <div class="label-eyebrow mb-2">预设颜色</div>
+                <div id="swatches" class="grid grid-cols-6 gap-1.5 mb-2.5"></div>
+                <div class="label-eyebrow mb-1.5">自定义</div>
+                <div class="flex items-center gap-2">
+                  <input id="color_custom" type="color" value="#c7cdd6" class="w-8 h-8 rounded cursor-pointer" style="border:1px solid var(--line);background:#fff;padding:1px"/>
+                  <input id="color_hex" type="text" value="#C7CDD6" maxlength="7" class="flex-1 text-center rounded px-1 py-1.5 text-[11px] font-mono" style="border:1px solid var(--line)"/>
+                </div>
+                <label class="flex items-center gap-1.5 mt-2.5 cursor-pointer select-none text-[11px]" style="color:var(--ink-2)">
+                  <input id="chk_metal" type="checkbox" class="w-3.5 h-3.5 cursor-pointer" style="accent-color:var(--blue)"/>
+                  金属漆面
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 底部右侧：厚度细调滑块 -->
+          <div class="absolute right-3 bottom-3 flex items-center gap-2.5 px-3 py-2 rounded-xl" style="z-index:16;background:rgba(255,255,255,.92);border:1px solid var(--line);backdrop-filter:blur(8px)">
+            <span class="text-[10px] font-mono whitespace-nowrap" style="color:var(--ink-faint)">厚度</span>
+            <input id="depth_slider" type="range" min="0.15" max="1.6" step="0.01" value="0.6" style="width:130px"/>
+            <span class="view3d-readout font-mono" id="depth_readout" style="min-width:42px">60%</span>
+          </div>
+
+          <div class="absolute left-3 top-3 text-[10px] font-mono px-2 py-1 rounded-md" style="z-index:16;background:rgba(255,255,255,.9);border:1px solid var(--line);color:var(--ink-faint)">
+            演示：侧轮廓双向挤出 · 左键旋转 / 右键平移 / 滚轮缩放
+          </div>
+          <div id="view3d_empty" class="absolute inset-0 flex items-center justify-center text-[12px]" style="color:var(--ink-faint)">
+            请先点击「开始生成」得到轮廓线，再切换 3D 视图
+          </div>
+        </div>
+
+        <div class="absolute left-4 bottom-4 text-[11px] space-y-2 z-20" style="color:var(--ink-2)">
+          <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono" style="background:rgba(255,255,255,.9);border:1px solid var(--line);backdrop-filter:blur(8px)">
+            <span style="color:var(--ink-faint)">Roof H</span><span style="color:var(--blue)" id="roof_h">--</span>
+            <span style="color:var(--ink-faint)" class="ml-1">车长</span><span style="color:var(--amber)" id="wheelbase">--</span>
+          </div>
+          <div class="flex items-center gap-3 px-3 py-2 rounded-lg flex-wrap" style="background:rgba(255,255,255,.9);border:1px solid var(--line);backdrop-filter:blur(8px)">
+            <div class="flex items-center gap-1.5"><span style="color:var(--ink-faint)" class="whitespace-nowrap">轮廓线宽</span>
+              <input id="stroke_width_top" type="number" min="0.5" max="10" step="0.5" value="2" class="w-12 text-center rounded px-1 py-0.5 text-[11px] font-mono"/></div>
+            <div class="flex items-center gap-1.5"><span style="color:var(--ink-faint)" class="whitespace-nowrap">底盘线宽</span>
+              <input id="stroke_width_chassis" type="number" min="0.5" max="10" step="0.5" value="2" class="w-12 text-center rounded px-1 py-0.5 text-[11px] font-mono"/></div>
+            <div class="flex items-center gap-1.5"><span style="color:var(--ink-faint)" class="whitespace-nowrap">参考线宽</span>
+              <input id="stroke_width_ground" type="number" min="0.5" max="10" step="0.5" value="1" class="w-12 text-center rounded px-1 py-0.5 text-[11px] font-mono"/></div>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none">
+              <input id="chk_roof_highlight" type="checkbox" class="w-3.5 h-3.5 cursor-pointer" style="accent-color:#e0322f"/>
+              <span style="color:#e0322f" class="whitespace-nowrap">标红顶型线</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- balance slider -->
+    <div class="p-5 flex flex-col gap-3.5 bg-white/55">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="label-eyebrow mb-1">Kansei ⇄ Engineering</div>
+          <h2 class="text-[15px] font-semibold font-display">感性-工程平衡控制</h2>
+        </div>
+        <span class="text-[11px] font-mono" style="color:var(--ink-faint)">滑块位置 ⇄ 帕累托代表样本</span>
+      </div>
+      <div class="mt-1">
+        <div class="flex justify-between text-[11px] mb-2" style="color:var(--ink-2)">
+          <span>感性匹配度优先</span><span>工程可行性优先</span>
+        </div>
+        <div class="relative h-6 flex items-center">
+          <div class="absolute inset-y-2 left-0 right-0 rounded-full overflow-hidden track">
+            <div class="absolute inset-0" style="background:linear-gradient(90deg,rgba(31,95,214,.85),rgba(47,116,240,.6),rgba(199,125,18,.55))"></div>
+          </div>
+          <input id="balance_slider" type="range" min="0" max="100" value="50" class="relative z-10 w-full" />
+        </div>
+        <div class="mt-2 flex justify-between text-[11px] font-mono" style="color:var(--ink-2)">
+          <span>情感得分 <span id="emo_score_bottom" style="color:var(--blue)">--</span></span>
+          <span>Cd <span id="cd_estimate_bottom" style="color:var(--amber)">--</span></span>
+        </div>
+        <button id="btn_update_preview" type="button"
+          class="btn-blueghost mt-3.5 w-full inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold py-2.5 px-3 font-display">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          更新预览界面
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Right: Pareto (collapsible) + History ===== -->
+  <section id="pareto_section" class="w-[320px] flex-none bg-white/55 hairline border-l flex flex-col overflow-hidden reveal" style="animation-delay:.12s">
+    <div id="pareto_inner" class="p-5 flex flex-col gap-4 h-full overflow-y-auto">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <div class="label-eyebrow mb-1.5">Pareto Frontier</div>
+          <h2 class="text-[15px] font-semibold font-display">帕累托前沿 · 情感-阻力分布</h2>
+        </div>
+        <button id="btn_collapse_pareto" class="btn-ghost rounded-lg p-1.5 flex-none" title="收起面板">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+      <p class="text-xs leading-relaxed" style="color:var(--ink-2)">
+        横轴为综合感性得分，纵轴为阻力系数 Cd。拖动中部滑块或点击散点切换平衡方案。
+      </p>
+
+      <div class="card-inset p-3 relative" style="min-height:200px">
+        <svg id="pareto_svg" viewBox="0 0 220 160" class="w-full h-full">
+          <line x1="24" y1="10" x2="24" y2="140" stroke="#c2ccdb" stroke-width="1.2"/>
+          <line x1="24" y1="140" x2="210" y2="140" stroke="#c2ccdb" stroke-width="1.2"/>
+          <g stroke="#e6ebf2" stroke-width="0.8" stroke-dasharray="2 4">
+            <line x1="24" y1="40" x2="210" y2="40"/><line x1="24" y1="80" x2="210" y2="80"/><line x1="24" y1="120" x2="210" y2="120"/>
+            <line x1="60" y1="10" x2="60" y2="140"/><line x1="110" y1="10" x2="110" y2="140"/><line x1="160" y1="10" x2="160" y2="140"/>
+          </g>
+          <text x="120" y="155" fill="#8b96a8" font-size="9" text-anchor="middle" font-family="JetBrains Mono, monospace">感性得分</text>
+          <text x="10" y="75" fill="#8b96a8" font-size="9" text-anchor="middle" font-family="JetBrains Mono, monospace" transform="rotate(-90 10 75)">阻力系数 (Cd)</text>
+          <g id="pareto_points" fill="#1f5fd6" stroke="#ffffff" stroke-width="1.2" cursor="pointer"></g>
+        </svg>
+        <div class="absolute inset-x-3 bottom-2 text-[10px] text-right font-mono" style="color:var(--ink-faint)">
+          <span id="pareto_hint">点击「开始优化」后显示本次帕累托前沿</span>
+        </div>
+      </div>
+
+      <!-- current scheme -->
+      <div class="card px-4 py-3 text-[11px] space-y-2.5" style="color:var(--ink-2)">
+        <div class="flex justify-between items-center">
+          <span class="font-medium font-display text-[12px]" style="color:var(--ink)">当前方案概览</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full font-mono chip">#<span id="current_id">--</span></span>
+        </div>
+        <div class="grid grid-cols-2 gap-y-2 gap-x-2">
+          <span>情感得分</span><span class="text-right font-mono" style="color:var(--blue)" id="current_emo">--</span>
+          <span>Cd 估计</span><span class="text-right font-mono" style="color:var(--amber)" id="current_cd">--</span>
+          <span>形态关键词</span><span class="text-right" style="color:var(--blue-deep)" id="current_words">--</span>
+        </div>
+        <button id="btn_pin_scheme" class="btn-ghost w-full rounded-lg text-[11px] font-medium py-1.5 mt-1 flex items-center justify-center gap-1.5">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+          收藏当前方案
+        </button>
+      </div>
+
+      <!-- history -->
+      <div class="flex-1 flex flex-col min-h-0">
+        <div class="flex items-center justify-between mb-2">
+          <div class="label-eyebrow">方案历史 / 收藏</div>
+          <span class="text-[10px] font-mono" style="color:var(--ink-faint)"><span id="hist_count">0</span> 条</span>
+        </div>
+        <div id="history_list" class="space-y-2 overflow-y-auto pr-1">
+          <div id="history_empty" class="text-[11px] text-center py-6 rounded-lg" style="color:var(--ink-faint);background:var(--panel-2);border:1px dashed var(--line)">
+            每次优化的方案会出现在这里<br/>可对比、收藏与回看
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- collapsed rail -->
+    <div id="pareto_rail" class="collapsed-rail hidden" title="展开帕累托面板">
+      <button id="btn_expand_pareto" class="btn-ghost rounded-lg p-1.5">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="font-mono text-[10px]" style="writing-mode:vertical-rl;color:var(--ink-faint);letter-spacing:.2em">PARETO 帕累托前沿</div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ Demo overlay (workflow steps) ============ -->
+<div id="demo_overlay" class="demo-overlay">
+  <div class="demo-card p-6">
+    <div class="flex items-start justify-between mb-4">
+      <div>
+        <div class="label-eyebrow mb-1" id="demo_eyebrow">Pipeline Stage</div>
+        <h3 class="text-xl font-semibold font-display" id="demo_title">阶段</h3>
+      </div>
+      <button id="demo_close" class="btn-ghost rounded-lg p-2">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="demo_body"></div>
+  </div>
+</div>
+
+<!-- toast -->
+<div id="toast" class="toast"></div>
+
+<!-- 简单交互脚本（仅用于 UI 效果，非真实计算） -->
+<script src="./engine.js"></script>
+<script src="./assets/rhino3dm.min.js"></script>
+<script src="./browser.js"></script>
+<script>
+  const SLIDER_MIN = -3;
+  const SLIDER_MAX = 3;
+
+  const sliders = {
+    stableDynamic: document.getElementById("slider_stableDynamic"),
+    traditionalModern: document.getElementById("slider_traditionalModern"),
+    plainLuxury: document.getElementById("slider_plainLuxury"),
+    softSharp: document.getElementById("slider_softSharp"),
+  };
+  const carPathTopEl = document.getElementById("car_path_top");
+  const carChassisEl = document.getElementById("car_chassis_line");
+  const carGroundRefEl = document.getElementById("car_ground_ref");
+  const roofHEl = document.getElementById("roof_h");
+  const wheelbaseEl = document.getElementById("wheelbase");
+  const carPathRoofEl = document.getElementById("car_path_roof");
+  const strokeWidthTopInput = document.getElementById("stroke_width_top");
+  const strokeWidthChassisInput = document.getElementById("stroke_width_chassis");
+  const strokeWidthGroundInput = document.getElementById("stroke_width_ground");
+  const chkRoofHighlight = document.getElementById("chk_roof_highlight");
+
+  const emoTopEl = document.getElementById("emo_score");
+  const cdTopEl = document.getElementById("cd_estimate");
+  const emoBottomEl = document.getElementById("emo_score_bottom");
+  const cdBottomEl = document.getElementById("cd_estimate_bottom");
+
+  const btnOptimize = document.getElementById("btn_optimize");
+  const btnOptimizeText = document.getElementById("btn_optimize_text");
+  const progressBar = document.getElementById("progress_bar");
+
+  const currentIdEl = document.getElementById("current_id");
+  const currentEmoEl = document.getElementById("current_emo");
+  const currentCdEl = document.getElementById("current_cd");
+  const currentWordsEl = document.getElementById("current_words");
+
+  const balanceSlider = document.getElementById("balance_slider");
+
+  const btnExportDxf = document.getElementById("btn_export_dxf");
+  const btnExport3dm = document.getElementById("btn_export_3dm");
+  const btnExportPng = document.getElementById("btn_export_png");
+
+  let currentProfileX = null;
+  let currentProfileY = null;
+
+  const paretoGroup = document.getElementById("pareto_points");
+  let paretoCircles = Array.from(paretoGroup.querySelectorAll("circle"));
+  let activePointCircle = null;
+  /** 本次优化返回的帕累托解设计参数，每项为 17 维数组，用于切换方案时请求对应轮廓 */
+  let currentParetoDesigns = [];
+  /** 当前已选中的帕累托索引，用于避免重复请求同一轮廓 */
+  let lastContourIndex = -1;
+
+  function getSliderValues() {
+    return {
+      stableDynamic: parseFloat(sliders.stableDynamic.value),
+      traditionalModern: parseFloat(sliders.traditionalModern.value),
+      plainLuxury: parseFloat(sliders.plainLuxury.value),
+      softSharp: parseFloat(sliders.softSharp.value),
+    };
+  }
+
+  function norm(v) {
+    return (v - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN);
+  }
+
+  function updateCarShape() {
+    // 占位：仅滑块变化时更新关键词，轮廓由「开始优化」或「更新预览界面」触发
+  }
+
+  // 用后端返回的帕累托数据重绘右侧散点图（横轴感性得分，纵轴 Cd）
+  const SVG_PAD_LEFT = 24, SVG_PAD_RIGHT = 210, SVG_PAD_TOP = 10, SVG_PAD_BOTTOM = 140;
+  const paretoHintEl = document.getElementById("pareto_hint");
+
+  function renderParetoCurve(paretoCd, paretoEmo) {
+    paretoGroup.innerHTML = "";
+    if (!paretoCd || !paretoEmo || paretoCd.length === 0) return;
+    const n = Math.min(paretoCd.length, paretoEmo.length);
+    const minCd = Math.min(...paretoCd.slice(0, n));
+    const maxCd = Math.max(...paretoCd.slice(0, n));
+    const minEmo = Math.min(...paretoEmo.slice(0, n));
+    const maxEmo = Math.max(...paretoEmo.slice(0, n));
+    const rangeCd = maxCd - minCd || 1;
+    const rangeEmo = maxEmo - minEmo || 1;
+    for (let i = 0; i < n; i++) {
+      const cd = paretoCd[i];
+      const emo = paretoEmo[i];
+      const sx = SVG_PAD_LEFT + ((emo - minEmo) / rangeEmo) * (SVG_PAD_RIGHT - SVG_PAD_LEFT);
+      const sy = SVG_PAD_BOTTOM - ((cd - minCd) / rangeCd) * (SVG_PAD_BOTTOM - SVG_PAD_TOP);
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", sx);
+      circle.setAttribute("cy", sy);
+      circle.setAttribute("r", "4");
+      circle.setAttribute("data-id", String(i + 1));
+      circle.setAttribute("data-emo", Number(emo).toFixed(5));
+      circle.setAttribute("data-cd", Number(cd).toFixed(4));
+      paretoGroup.appendChild(circle);
+    }
+    paretoCircles = Array.from(paretoGroup.querySelectorAll("circle"));
+    if (paretoHintEl) paretoHintEl.textContent = "本次优化帕累托前沿，可点击或拖动滑块切换方案";
+  }
+
+  // 发送给后端并更新轮廓与帕累托图
+  async function fetchRealCarShape() {
+    if (btnOptimize.disabled) return;
+    btnOptimize.disabled = true;
+    // 显示加载状态
+    btnOptimizeText.textContent = "计算中";
+    progressBar.style.width = "3%";
+
+    const s = getSliderValues();
+    // 映射：网页是 [-3, 3]，如果你的 MATLAB 模型需要 [0, 10]，在这里转换
+    // 假设 MATLAB 需要 0-10 分： (val + 3) * (10/6)
+    const to10 = (v) => (v + 3) * (10 / 6);
+
+    const payload = {
+        scores: [
+            to10(s.stableDynamic),
+            to10(s.traditionalModern),
+            to10(s.plainLuxury),
+            to10(s.softSharp)
+        ]
+    };
+
+    try {
+        const data = await generateDesigns(payload.scores, generation => {
+            progressBar.style.width = (5 + generation * 1.8) + "%";
+            document.getElementById("opt_stage").textContent = "正在优化 · 第 " + generation + " / 50 代";
+        });
+
+        if (data.success) {
+            drawMatlabPath(data.x, data.y);
+            // 更新情感得分、Cd、车高、轴距
+            if (data.emo_score != null) {
+                emoTopEl.textContent = Number(data.emo_score).toFixed(5);
+                emoBottomEl.textContent = Number(data.emo_score).toFixed(5);
+            }
+            if (data.cd != null) {
+                cdTopEl.textContent = Number(data.cd).toFixed(4);
+                cdBottomEl.textContent = Number(data.cd).toFixed(4);
+            }
+            if (data.roof_h != null) roofHEl.textContent = Number(data.roof_h).toFixed(3) + " m";
+            if (data.wheelbase != null) wheelbaseEl.textContent = Number(data.wheelbase).toFixed(3) + " m";
+            // 用本次优化的帕累托前沿重绘右侧曲线，并保存设计参数供切换方案时请求轮廓
+            if (data.pareto_cd && data.pareto_emo && data.pareto_cd.length && data.pareto_emo.length) {
+                currentParetoDesigns = Array.isArray(data.pareto_designs) ? data.pareto_designs : [];
+                lastContourIndex = -1;
+                renderParetoCurve(data.pareto_cd, data.pareto_emo);
+                balanceSlider.value = "0";
+                activateParetoByIndex(0);
+                // 第 0 个方案轮廓已由上面 drawMatlabPath(data.x, data.y) 绘制，这里仍会调用 updateContourForParetoIndex(0) 以保持一致
+            }
+            progressBar.style.width = "100%";
+            setTimeout(() => {
+                btnOptimizeText.textContent = "优化完成";
+                progressBar.style.width = "0%";
+                btnOptimize.disabled = false;
+            }, 500);
+        } else {
+            btnOptimizeText.textContent = "开始生成 Start Generation";
+            progressBar.style.width = "0%";
+        }
+    } catch (err) {
+        console.error(err);
+        btnOptimize.disabled = false;
+        document.getElementById("opt_stage").textContent = err.message;
+        btnOptimizeText.textContent = "重试优化";
+        progressBar.style.width = "0%";
+    }
+}
+
+function drawMatlabPath(xArr, yArr) {
+    if (!xArr || xArr.length < 2) return;
+
+    currentProfileX = xArr;
+    currentProfileY = yArr;
+    btnExportDxf.disabled = false;
+    btnExport3dm.disabled = false;
+    btnExportPng.disabled = false;
+
+    const minX = Math.min(...xArr);
+    const maxX = Math.max(...xArr);
+    const scale = 300 / (maxX - minX);
+    const chassisY = Math.min(...yArr);
+    const pyChassis = 150 - chassisY * scale;
+
+    // clip-path 下边缘多留出当前轮廓线宽的余量，避免裁掉描边下半部分
+    const strokePad = parseFloat(strokeWidthTopInput.value) || 2;
+    const clipRect = document.getElementById("clipRectChassis");
+    if (clipRect) {
+        clipRect.setAttribute("height", Math.max(0, Math.min(200, pyChassis + strokePad)));
+    }
+
+    const toSvgX = (x) => (x - minX) * scale + 50;
+    const toSvgY = (y) => 150 - (y * scale);
+
+    let pathD = `M ${toSvgX(xArr[0])} ${toSvgY(yArr[0])}`;
+    for (let i = 1; i < xArr.length; i++) {
+        pathD += ` L ${toSvgX(xArr[i])} ${toSvgY(yArr[i])}`;
+    }
+    carPathTopEl.setAttribute("d", pathD);
+
+    // 顶型线：左Bezier 50点 → 顶线 400点 → 右Bezier 50点 → 底1点
+    // 顶型线对应索引 50..449（MATLAB dense_x 各200点，左右合计400点）
+    const ROOF_START = 50;
+    const ROOF_END = Math.min(449, xArr.length - 1);
+    if (ROOF_END > ROOF_START) {
+        let roofD = `M ${toSvgX(xArr[ROOF_START])} ${toSvgY(yArr[ROOF_START])}`;
+        for (let i = ROOF_START + 1; i <= ROOF_END; i++) {
+            roofD += ` L ${toSvgX(xArr[i])} ${toSvgY(yArr[i])}`;
+        }
+        carPathRoofEl.setAttribute("d", roofD);
+        carPathRoofEl.setAttribute("stroke-width",
+            carPathTopEl.getAttribute("stroke-width"));
+        carPathRoofEl.setAttribute("visibility",
+            chkRoofHighlight.checked ? "visible" : "hidden");
+    }
+
+    // 底盘直线：连接轮廓首末点
+    const firstX = toSvgX(xArr[0]);
+    const firstY = toSvgY(yArr[0]);
+    const lastX = toSvgX(xArr[xArr.length - 2]);
+    const lastY = toSvgY(yArr[yArr.length - 2]);
+    carChassisEl.setAttribute("x1", firstX);
+    carChassisEl.setAttribute("y1", firstY);
+    carChassisEl.setAttribute("x2", lastX);
+    carChassisEl.setAttribute("y2", lastY);
+    carChassisEl.setAttribute("visibility", "visible");
+
+}
+
+  // 根据当前滑块状态生成“形态关键词”：每根滑块按自身可调范围均分为 6 区，左端词 x / 右端词 y
+  function wordForSlider(v, min, max, leftWord, rightWord) {
+    const span = max - min || 1;
+    const n = (v - min) / span; // 0~1，0=最左，0.5=中点，1=最右
+    if (n >= 1) return rightWord;
+    if (n <= 0) return leftWord;
+    if (Math.abs(n - 0.5) < 1e-4) return "中性";
+    if (n < 1/6) return leftWord;
+    if (n < 2/6) return "较为" + leftWord;
+    if (n < 3/6) return "略为" + leftWord;
+    if (n < 4/6) return "略为符合" + rightWord;
+    if (n < 5/6) return "较为" + rightWord;
+    return rightWord;
+  }
+  function updateWords() {
+    const s = getSliderValues();
+    const minStable = parseFloat(sliders.stableDynamic.min ?? SLIDER_MIN);
+    const maxStable = parseFloat(sliders.stableDynamic.max ?? SLIDER_MAX);
+    const minTrad   = parseFloat(sliders.traditionalModern.min ?? SLIDER_MIN);
+    const maxTrad   = parseFloat(sliders.traditionalModern.max ?? SLIDER_MAX);
+    const minPlain  = parseFloat(sliders.plainLuxury.min ?? SLIDER_MIN);
+    const maxPlain  = parseFloat(sliders.plainLuxury.max ?? SLIDER_MAX);
+    const minSoft   = parseFloat(sliders.softSharp.min ?? SLIDER_MIN);
+    const maxSoft   = parseFloat(sliders.softSharp.max ?? SLIDER_MAX);
+    const words = [
+      wordForSlider(s.stableDynamic, minStable, maxStable, "稳重", "灵动"),
+      wordForSlider(s.traditionalModern, minTrad, maxTrad, "传统", "现代"),
+      wordForSlider(s.plainLuxury, minPlain, maxPlain, "朴实", "豪华"),
+      wordForSlider(s.softSharp, minSoft, maxSoft, "柔和", "凌厉"),
+    ];
+    currentWordsEl.textContent = words.join(" · ");
+  }
+
+  // 高亮某个帕累托点，更新右侧摘要与中部 emo/cd（不自动请求轮廓，需点击「更新预览界面」）
+  function activateParetoByIndex(idx) {
+    if (paretoCircles.length === 0) return;
+    const clampedIdx = Math.max(0, Math.min(paretoCircles.length - 1, idx));
+    const circle = paretoCircles[clampedIdx];
+
+    const id = circle.getAttribute("data-id");
+    const emo = circle.getAttribute("data-emo");
+    const cd = circle.getAttribute("data-cd");
+
+    currentIdEl.textContent = id;
+    currentEmoEl.textContent = emo;
+    currentCdEl.textContent = cd;
+    emoBottomEl.textContent = emo;
+    cdBottomEl.textContent = cd;
+
+    if (activePointCircle) {
+      activePointCircle.setAttribute("r", "4");
+      activePointCircle.setAttribute("fill", "#0ea5e9");
+    }
+    circle.setAttribute("r", "6");
+    circle.setAttribute("fill", "#22c55e");
+    activePointCircle = circle;
+  }
+
+  // 返回当前平衡滑块对应的帕累托点索引（0 ~ paretoCircles.length-1）
+  function getCurrentParetoIndex() {
+    if (paretoCircles.length === 0) return 0;
+    const t = parseFloat(balanceSlider.value) / 100;
+    return Math.round(t * (paretoCircles.length - 1));
+  }
+
+  // 根据帕累托点索引请求该方案轮廓并重绘（供「更新预览界面」按钮调用）
+  async function updateContourForParetoIndex(idx) {
+    if (!currentParetoDesigns.length || idx < 0 || idx >= currentParetoDesigns.length) return;
+    let design = currentParetoDesigns[idx];
+    if (!design) return;
+    design = Array.isArray(design) ? design.flat() : design;
+    if (design.length !== 17) return;
+    try {
+      const data = await getContour(design);
+      if (data.success && data.x && data.y) {
+        drawMatlabPath(data.x, data.y);
+        if (data.roof_h != null) roofHEl.textContent = Number(data.roof_h).toFixed(3) + " m";
+        if (data.wheelbase != null) wheelbaseEl.textContent = Number(data.wheelbase).toFixed(3) + " m";
+        emoTopEl.textContent = paretoCircles[idx].dataset.emo;
+        cdTopEl.textContent = paretoCircles[idx].dataset.cd;
+        lastContourIndex = idx;
+      }
+    } catch (err) {
+      console.error("获取方案轮廓失败:", err);
+    }
+  }
+
+  // 滑块拖动 -> 映射到帕累托点索引
+  balanceSlider.addEventListener("input", () => {
+    if (paretoCircles.length === 0) return;
+    const t = balanceSlider.value / 100; // 0~1
+    const idx = Math.round(t * (paretoCircles.length - 1));
+    activateParetoByIndex(idx);
+  });
+
+  // 点击帕累托点 -> 高亮 & 同步滑块位置（不自动更新轮廓，需点「更新预览界面」）
+  paretoGroup.addEventListener("click", (e) => {
+    if (e.target.tagName.toLowerCase() !== "circle") return;
+    const circle = e.target;
+    const idx = paretoCircles.indexOf(circle);
+    if (idx === -1) return;
+    const t = idx / Math.max(1, paretoCircles.length - 1);
+    balanceSlider.value = String(t * 100);
+    activateParetoByIndex(idx);
+  });
+
+  // 「更新预览界面」按钮：按当前平衡滑块选中的方案请求轮廓并更新中部预览
+  const btnUpdatePreview = document.getElementById("btn_update_preview");
+  if (btnUpdatePreview) {
+    btnUpdatePreview.addEventListener("click", () => {
+      const idx = getCurrentParetoIndex();
+      updateContourForParetoIndex(idx);
+    });
+  }
+
+  // 左侧感性滑块变动 -> 更新车身轮廓 & 顶部情感/Cd
+  Object.values(sliders).forEach(input => {
+    input.addEventListener("input", () => {
+      updateCarShape();
+      updateWords();
+    });
+  });
+
+  // 开始优化按钮：调用后端 /generate，用当前滑块做多目标优化并更新轮廓
+  btnOptimize.addEventListener("click", () => {
+    fetchRealCarShape();
+  });
+
+  // ---------- 线宽控制 ----------
+  strokeWidthTopInput.addEventListener("input", () => {
+    const v = parseFloat(strokeWidthTopInput.value) || 2;
+    carPathTopEl.setAttribute("stroke-width", v);
+    carPathRoofEl.setAttribute("stroke-width", v);
+    if (currentProfileX) drawMatlabPath(currentProfileX, currentProfileY);
+  });
+  strokeWidthChassisInput.addEventListener("input", () => {
+    const v = parseFloat(strokeWidthChassisInput.value) || 2;
+    carChassisEl.setAttribute("stroke-width", v);
+  });
+  strokeWidthGroundInput.addEventListener("input", () => {
+    const v = parseFloat(strokeWidthGroundInput.value) || 1;
+    carGroundRefEl.setAttribute("stroke-width", v);
+  });
+
+  // ---------- 顶型线标红开关 ----------
+  chkRoofHighlight.addEventListener("change", () => {
+    carPathRoofEl.setAttribute("visibility",
+      chkRoofHighlight.checked ? "visible" : "hidden");
+  });
+
+  // ---------- 导出功能 ----------
+  async function exportProfile(format) {
+    if (!currentProfileX || !currentProfileY || currentProfileX.length < 2) {
+      alert("请先生成轮廓后再导出");
+      return;
+    }
+    const filename = format === "dxf" ? "car_profile.dxf" : "car_profile.3dm";
+    const btn = format === "dxf" ? btnExportDxf : btnExport3dm;
+    const originalMarkup = btn.innerHTML;
+    btn.textContent = "导出中…";
+    btn.disabled = true;
+    try {
+      const blob = await cadBlob(format, currentProfileX, currentProfileY);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert("导出失败: " + err.message);
+    } finally {
+      btn.innerHTML = originalMarkup;
+      btn.disabled = false;
+    }
+  }
+
+  btnExportDxf.addEventListener("click", () => exportProfile("dxf"));
+  btnExport3dm.addEventListener("click", () => exportProfile("3dm"));
+
+  function exportPreviewPng() {
+    const svgEl = document.getElementById("car_svg");
+    const clone = svgEl.cloneNode(true);
+    clone.style.visibility = "visible";
+    clone.setAttribute("width","400");
+    clone.setAttribute("height","200");
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    // 在 SVG 最底层插入白色背景矩形
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("width", "400");
+    bg.setAttribute("height", "200");
+    bg.setAttribute("fill", "#ffffff");
+    clone.insertBefore(bg, clone.firstChild);
+
+    const svgData = new XMLSerializer().serializeToString(clone);
+    const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+      const scale = 4;
+      const canvas = document.createElement("canvas");
+      canvas.width = 400 * scale;
+      canvas.height = 200 * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+
+      const a = document.createElement("a");
+      a.href = canvas.toDataURL("image/png");
+      a.download = "car_profile.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+    img.src = url;
+  }
+
+  btnExportPng.addEventListener("click", exportPreviewPng);
+
+  // 初始化：车身轮廓 + 感性描述（帕累托图在首次点击「开始优化」后由后端数据填充）
+  updateCarShape();
+  updateWords();
+  if (paretoCircles.length > 0) {
+    activateParetoByIndex(0);
+    balanceSlider.value = "0";
+  }
+</script>
+<!-- ============ UX 增强脚本（纯附加，不改动原有逻辑/后端调用） ============ -->
+<script>
+(function(){
+  "use strict";
+  const $ = (id)=>document.getElementById(id);
+
+  /* ---------- toast ---------- */
+  const toastEl = $("toast");
+  let toastTimer;
+  function toast(msg){
+    if(!toastEl) return;
+    toastEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7fe3b4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'+msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>toastEl.classList.remove("show"), 2200);
+  }
+
+  /* ---------- slider value bubbles + 感性词反馈 ---------- */
+  const sliderDefs = [
+    {id:"slider_stableDynamic",   bubble:"bubble_stableDynamic",   word:"word_stableDynamic",   left:"稳重", right:"灵动"},
+    {id:"slider_traditionalModern",bubble:"bubble_traditionalModern",word:"word_traditionalModern",left:"传统", right:"现代"},
+    {id:"slider_plainLuxury",     bubble:"bubble_plainLuxury",     word:"word_plainLuxury",     left:"朴实", right:"豪华"},
+    {id:"slider_softSharp",       bubble:"bubble_softSharp",       word:"word_softSharp",       left:"柔和", right:"凌厉"},
+  ];
+  function wordFor(v,min,max,l,r){
+    const n=(v-min)/((max-min)||1);
+    if(n>=1)return r; if(n<=0)return l;
+    if(Math.abs(n-0.5)<0.04)return "中性";
+    if(n<1/6)return l; if(n<2/6)return "较为"+l; if(n<3/6)return "略"+l;
+    if(n<4/6)return "略"+r; if(n<5/6)return "较为"+r; return r;
+  }
+  function syncSlider(def){
+    const s=$(def.id), b=$(def.bubble), w=$(def.word);
+    if(!s) return;
+    const min=parseFloat(s.min), max=parseFloat(s.max), v=parseFloat(s.value);
+    const pct=(v-min)/((max-min)||1);
+    if(b){
+      b.textContent = (v>0?"+":"")+v.toFixed(1);
+      // position bubble above the thumb (thumb travels within track width)
+      b.style.left = (pct*100)+"%";
+    }
+    if(w) w.textContent = wordFor(v,min,max,def.left,def.right);
+  }
+  sliderDefs.forEach(def=>{
+    const s=$(def.id);
+    if(!s) return;
+    const wrap=s.closest(".slider-wrap");
+    const handler=()=>syncSlider(def);
+    s.addEventListener("input", handler);
+    s.addEventListener("pointerdown", ()=>wrap&&wrap.classList.add("dragging"));
+    window.addEventListener("pointerup", ()=>wrap&&wrap.classList.remove("dragging"));
+    syncSlider(def);
+  });
+
+  /* ---------- 感性预设 ---------- */
+  const presets = {
+    sport:  {slider_stableDynamic:2.4, slider_traditionalModern:2.0, slider_plainLuxury:0.8, slider_softSharp:2.2, name:"运动型"},
+    luxury: {slider_stableDynamic:-1.2,slider_traditionalModern:1.4, slider_plainLuxury:2.6, slider_softSharp:-0.6,name:"豪华型"},
+    family: {slider_stableDynamic:0.4, slider_traditionalModern:0.6, slider_plainLuxury:-0.4,slider_softSharp:-1.4,name:"家用型"},
+  };
+  document.querySelectorAll("#preset_row .preset").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const p=presets[btn.dataset.preset]; if(!p) return;
+      sliderDefs.forEach(def=>{
+        const s=$(def.id);
+        if(s && p[def.id]!=null){
+          s.value = String(p[def.id]);
+          s.dispatchEvent(new Event("input", {bubbles:true})); // 触发原有 updateCarShape/updateWords
+          syncSlider(def);
+        }
+      });
+      toast("已载入预设：" + p.name);
+    });
+  });
+
+  /* ---------- 优化过程阶段化可视化 ---------- */
+  const stageEl = $("opt_stage");
+  // 观察进度条结束 -> 收尾阶段提示 & 自动归档历史
+  const progress = $("progress_bar");
+  if(progress){
+    const mo = new MutationObserver(()=>{
+      if(progress.style.width === "100%"){
+        if (stageEl) stageEl.textContent = "优化完成 · 帕累托前沿已更新";
+        setTimeout(captureHistory, 400);
+      }
+    });
+    mo.observe(progress, {attributes:true, attributeFilter:["style"]});
+  }
+
+  /* ---------- 方案历史 / 收藏 ---------- */
+  const histList=$("history_list"), histEmpty=$("history_empty"), histCount=$("hist_count");
+  let history=[]; let histId=0;
+  function curMetrics(){
+    return {
+      emo: ($("current_emo")?.textContent || $("emo_score")?.textContent || "--"),
+      cd:  ($("current_cd")?.textContent  || $("cd_estimate")?.textContent || "--"),
+      words: ($("current_words")?.textContent || "--"),
+      scheme: ($("current_id")?.textContent || "--"),
+    };
+  }
+  function renderHistory(){
+    if(!histList) return;
+    if(histEmpty) histEmpty.style.display = history.length ? "none":"block";
+    // remove old cards (keep empty placeholder)
+    histList.querySelectorAll(".hist-card").forEach(n=>n.remove());
+    history.slice().reverse().forEach(h=>{
+      const el=document.createElement("div");
+      el.className="hist-card"+(h.pinned?" pinned":"");
+      el.innerHTML =
+        '<div class="flex items-center justify-between mb-1.5">'+
+          '<span class="font-mono text-[11px]" style="color:var(--ink)">#'+h.id+(h.pinned?' ★':'')+'</span>'+
+          '<span class="text-[10px]" style="color:var(--ink-faint)">'+h.time+'</span>'+
+        '</div>'+
+        '<div class="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10.5px] font-mono">'+
+          '<span style="color:var(--ink-faint)">EMO</span><span class="text-right" style="color:var(--blue)">'+h.emo+'</span>'+
+          '<span style="color:var(--ink-faint)">Cd</span><span class="text-right" style="color:var(--amber)">'+h.cd+'</span>'+
+        '</div>'+
+        (h.words&&h.words!=="--"?'<div class="text-[10px] mt-1 truncate" style="color:var(--blue-deep)">'+h.words+'</div>':'');
+      histList.appendChild(el);
+    });
+    if(histCount) histCount.textContent = String(history.length);
+  }
+  function captureHistory(){
+    const m=curMetrics();
+    if(m.emo==="--" && m.cd==="--") return;
+    histId++;
+    const d=new Date();
+    history.push({id:histId, ...m, pinned:false,
+      time:`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`});
+    if(history.length>12) history.shift();
+    renderHistory();
+  }
+  const btnPin=$("btn_pin_scheme");
+  if(btnPin){
+    btnPin.addEventListener("click", ()=>{
+      const m=curMetrics();
+      if(m.emo==="--" && m.cd==="--"){ toast("请先生成方案再收藏"); return; }
+      histId++;
+      const d=new Date();
+      history.push({id:histId, ...m, pinned:true,
+        time:`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`});
+      if(history.length>12) history.shift();
+      renderHistory();
+      toast("已收藏当前方案 ★");
+    });
+  }
+
+  /* ---------- 右侧帕累托面板 收起/展开 ---------- */
+  const section=$("pareto_section"), inner=$("pareto_inner"), rail=$("pareto_rail");
+  function collapse(c){
+    if(!section) return;
+    if(c){
+      section.style.width="46px";
+      if(inner) inner.style.display="none";
+      if(rail) rail.classList.remove("hidden");
+    }else{
+      section.style.width="320px";
+      if(inner) inner.style.display="";
+      if(rail) rail.classList.add("hidden");
+    }
+  }
+  $("btn_collapse_pareto")?.addEventListener("click", ()=>collapse(true));
+  $("btn_expand_pareto")?.addEventListener("click", ()=>collapse(false));
+  rail?.addEventListener("click",(e)=>{ if(e.target===rail) collapse(false); });
+
+  /* ---------- 左侧项目栏 收起/展开 ---------- */
+  const projSection=$("project_section"), projInner=$("project_inner"), projRail=$("project_rail");
+  function collapseProject(c){
+    if(!projSection) return;
+    if(c){
+      projSection.style.width="46px";
+      if(projInner) projInner.style.display="none";
+      if(projRail) projRail.classList.remove("hidden");
+    }else{
+      projSection.style.width="208px";
+      if(projInner) projInner.style.display="";
+      if(projRail) projRail.classList.add("hidden");
+    }
+  }
+  $("btn_collapse_project")?.addEventListener("click", ()=>collapseProject(true));
+  $("btn_expand_project")?.addEventListener("click", ()=>collapseProject(false));
+  projRail?.addEventListener("click",(e)=>{ if(e.target===projRail) collapseProject(false); });
+  // 顶部按钮:切换项目栏（依据实际状态，避免与侧栏按钮不同步）
+  $("btn_toggle_project")?.addEventListener("click", ()=>{
+    const isCollapsed = projSection && projSection.style.width === "46px";
+    collapseProject(!isCollapsed);
+  });
+
+  /* ---------- 工作流步骤演示弹层 ---------- */
+  const overlay=$("demo_overlay"), demoTitle=$("demo_title"), demoEyebrow=$("demo_eyebrow"), demoBody=$("demo_body");
+  const demos = {
+    req:{eyebrow:"Stage 01 · Requirement", title:"需求定义", body:`
+      <p class="text-sm leading-relaxed mb-4" style="color:var(--ink-2)">该阶段确定车型定位、尺寸约束与品牌基因，输出供下游感性采集使用的约束包。</p>
+      <div class="grid grid-cols-2 gap-3 text-[12px]">
+        ${cell("整车级别","B 级 · 运动轿跑")}${cell("轴距区间","2850 – 2950 mm")}
+        ${cell("品牌基因","低趴 · 长机舱 · 溜背")}${cell("法规约束","行人保护 / 视野角")}
+        ${cell("目标人群","30–45 都市精英")}${cell("基准 Cd","0.26（待优化）")}
+      </div>`},
+    kansei:{eyebrow:"Stage 02 · Kansei", title:"感性意象采集", body:`
+      <p class="text-sm leading-relaxed mb-4" style="color:var(--ink-2)">通过用户问卷与语义差异量表（SD 法），将主观感受量化为四组感性词对的目标分值，驱动下游生成。</p>
+      <div class="space-y-2.5">
+        ${bar("稳重 — 灵动",78)}${bar("传统 — 现代",86)}${bar("朴实 — 豪华",64)}${bar("柔和 — 凌厉",72)}
+      </div>
+      <p class="text-[11px] mt-4 font-mono" style="color:var(--ink-faint)">样本量 N=412 · Cronbach α=0.87</p>`},
+    review:{eyebrow:"Stage 05 · Review", title:"工程评审", body:`
+      <p class="text-sm leading-relaxed mb-4" style="color:var(--ink-2)">将选定的帕累托方案送入工程团队评审：气动、碰撞包络、热管理与制造可行性多维打分。</p>
+      <div class="grid grid-cols-2 gap-3 text-[12px]">
+        ${cell("气动 Cd","0.231 ✓")}${cell("正碰包络","通过 ✓")}
+        ${cell("A 柱视野","27.4° ✓")}${cell("制造可行性","中 · 需评估冲压")}
+        ${cell("成本影响","+2.3%")}${cell("评审结论","建议进入曲面阶段")}
+      </div>`},
+    surface:{eyebrow:"Stage 06 · Class-A", title:"A 级曲面", body:`
+      <p class="text-sm leading-relaxed mb-4" style="color:var(--ink-2)">把生成的特征线导入 Alias / ICEM，构建满足曲率连续（G2/G3）的 A 级曲面，用于量产可视外表面。</p>
+      <div class="rounded-xl p-4 mb-3" style="background:var(--panel-2);border:1px solid var(--line)">
+        <svg viewBox="0 0 320 90" class="w-full" style="max-height:120px">
+          <path d="M10 70 C60 70 70 66 110 44 C150 22 200 18 250 30 L310 56" fill="none" stroke="var(--blue)" stroke-width="2.2"/>
+          <path d="M10 74 C60 74 70 70 110 50 C150 30 200 26 250 38 L310 62" fill="none" stroke="#9aa6b6" stroke-width="1" stroke-dasharray="3 3"/>
+          ${Array.from({length:9}).map((_,i)=>`<line x1="${30+i*32}" y1="20" x2="${30+i*32}" y2="80" stroke="#e3e9f2" stroke-width="0.8"/>`).join("")}
+        </svg>
+        <div class="text-[11px] font-mono text-center mt-1" style="color:var(--ink-faint)">曲率梳 · 高光线连续性检查</div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-[11px] font-mono text-center">
+        ${tag("G2 连续 ✓")}${tag("拔模 ≥3° ✓")}${tag("公差 ±0.1")}
+      </div>`},
+    deliver:{eyebrow:"Stage 07 · Delivery", title:"数字模型交付", body:`
+      <p class="text-sm leading-relaxed mb-4" style="color:var(--ink-2)">输出标准化数字资产，交付造型评审、虚拟现实（VR）评审与下游 CAE / CAM。</p>
+      <div class="space-y-2">
+        ${file("X7_profile_final.dxf","CAD 交换 · 2D 特征线","已就绪")}
+        ${file("X7_classA_surface.3dm","Rhino A 级曲面","已就绪")}
+        ${file("X7_render_side.png","侧视高清渲染","已就绪")}
+        ${file("X7_kansei_report.pdf","感性评估报告","生成中…")}
+      </div>`},
+  };
+  function cell(k,v){return `<div class="rounded-lg px-3 py-2" style="background:var(--panel-2);border:1px solid var(--line)"><div class="text-[10px]" style="color:var(--ink-faint)">${k}</div><div class="font-medium mt-0.5">${v}</div></div>`;}
+  function bar(label,pct){return `<div><div class="flex justify-between text-[11px] mb-1"><span style="color:var(--ink-2)">${label}</span><span class="font-mono" style="color:var(--blue)">${pct}%</span></div><div class="h-1.5 rounded-full" style="background:var(--line)"><div class="h-full rounded-full" style="width:${pct}%;background:linear-gradient(90deg,var(--blue),var(--blue-2))"></div></div></div>`;}
+  function tag(t){return `<div class="rounded-lg py-1.5" style="background:var(--blue-soft);color:var(--blue-deep)">${t}</div>`;}
+  function file(name,desc,status){const ok=status==="已就绪";return `<div class="flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:var(--panel-2);border:1px solid var(--line)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><div class="flex-1 min-w-0"><div class="text-[12px] font-mono truncate">${name}</div><div class="text-[10px]" style="color:var(--ink-faint)">${desc}</div></div><span class="text-[10px] px-2 py-0.5 rounded-full ${ok?'chip':'chip-amber'} font-mono">${status}</span></div>`;}
+
+  document.querySelectorAll("#workflow_stepper .step").forEach(step=>{
+    step.addEventListener("click", ()=>{
+      const key=step.dataset.demo;
+      if(!key || !demos[key]) return; // 当前阶段(★)无演示，保持原工具
+      const d=demos[key];
+      demoEyebrow.textContent=d.eyebrow; demoTitle.textContent=d.title; demoBody.innerHTML=d.body;
+      overlay.classList.add("open");
+    });
+  });
+  function closeDemo(){ overlay.classList.remove("open"); }
+  $("demo_close")?.addEventListener("click", closeDemo);
+  overlay?.addEventListener("click",(e)=>{ if(e.target===overlay) closeDemo(); });
+  window.addEventListener("keydown",(e)=>{ if(e.key==="Escape") closeDemo(); });
+
+  /* ============================================================
+     3D 视图（纯前端：把当前侧轮廓拉伸成可旋转的演示体）
+     —— 不修改原逻辑，仅读取 #car_path_top 的渲染结果
+     ============================================================ */
+  const THREE_OK = (typeof THREE !== "undefined");
+  const layer3d   = $("view3d_layer");
+  const empty3d   = $("view3d_empty");
+  const canvas3d  = $("car_canvas3d");
+  const carSvg    = $("car_svg");
+  const pathTop   = $("car_path_top");
+  const seg2d=$("btn_view_2d"), seg3d=$("btn_view_3d");
+
+  let renderer, scene, camera, carGroup, raf=null;
+  let rotX=-0.18, rotY=-0.55, autoSpin=false, depth=0.6, dragging=false, lastX=0, lastY=0;
+  let dragBtn=0, panX=0, panY=0, zoom=9, showSpine=true;   // dragBtn:0左键旋转 2右键平移; zoom=相机距离; showSpine 中轴红线
+  const ZOOM0=9, defView={rotX:-0.18,rotY:-0.55,panX:0,panY:0,zoom:9};
+  let bodyColor=0xc7cdd6, bodyMetal=false;
+  let showWheels=true, showRoofH=true;
+
+  function sampleProfile(){
+    // 从渲染后的 path 上等距采样，得到 [ [x,y], ... ]，坐标系为 SVG 的 0..400 / 0..200
+    if(!pathTop) return null;
+    const d = pathTop.getAttribute("d");
+    if(!d || d.length < 4) return null;
+    let total;
+    try{ total = pathTop.getTotalLength(); }catch(e){ return null; }
+    if(!total || total < 1) return null;
+    const N = 120, pts=[];
+    for(let i=0;i<=N;i++){
+      const p = pathTop.getPointAtLength(total*i/N);
+      pts.push([p.x, p.y]);
+    }
+    return pts;
+  }
+
+  function buildCar(){
+    if(!THREE_OK || !scene) return false;
+    const pts = sampleProfile();
+    if(!pts){ return false; }
+
+    if(carGroup){ scene.remove(carGroup); carGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
+    carGroup = new THREE.Group();
+
+    // 归一化到以原点为中心，整体跨度约 4 单位
+    const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+    const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+    const spanX=(maxX-minX)||1;
+    const sc=4/spanX;
+    const cx=(minX+maxX)/2, groundY=maxY; // SVG 中 y 向下，maxY 为底部（地面）
+
+    // shape：侧轮廓 + 沿底部闭合
+    const shape = new THREE.Shape();
+    pts.forEach((p,i)=>{
+      const X=(p[0]-cx)*sc;
+      const Y=(groundY-p[1])*sc; // 翻转 y，使车顶朝上
+      if(i===0) shape.moveTo(X,Y); else shape.lineTo(X,Y);
+    });
+    // 闭合到地面线
+    shape.lineTo((maxX-cx)*sc, 0);
+    shape.lineTo((minX-cx)*sc, 0);
+
+    const extrudeDepth = depth*Math.min(spanX*sc,4); // 厚度随滑块
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: extrudeDepth, bevelEnabled:true, bevelThickness:0.05, bevelSize:0.05, bevelSegments:2, steps:1
+    });
+    // 记录居中前的包围盒，用同样的平移把"中轴轮廓线"对齐到几何体
+    geo.computeBoundingBox();
+    const bb=geo.boundingBox;
+    const offX=-(bb.min.x+bb.max.x)/2, offY=-(bb.min.y+bb.max.y)/2, offZ=-(bb.min.z+bb.max.z)/2;
+    geo.center();
+
+    const body = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color:bodyColor,
+      metalness: bodyMetal ? 0.85 : 0.25,
+      roughness: bodyMetal ? 0.28 : 0.55,
+      flatShading:false
+    }));
+    // 轮廓描边（随车色明暗自动取深一档）
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 28),
+      new THREE.LineBasicMaterial({color: edgeColorFor(bodyColor)}));
+    edges.renderOrder=1;
+    carGroup.add(body); carGroup.add(edges);
+
+    // 中轴侧轮廓红线：原始 2D 轮廓位于挤出体对称中面(z 中点)，与几何体同样居中
+    if(showSpine){
+      const spinePts=[];
+      const zMid=(bb.min.z+bb.max.z)/2 + offZ; // 居中后中面 ≈ 0
+      pts.forEach(p=>{
+        spinePts.push(new THREE.Vector3((p[0]-cx)*sc+offX, (groundY-p[1])*sc+offY, zMid));
+      });
+      const spineGeo=new THREE.BufferGeometry().setFromPoints(spinePts);
+      const spine=new THREE.Line(spineGeo, new THREE.LineBasicMaterial({color:0xe0322f}));
+      spine.renderOrder=3;
+      spine.material.depthTest=false; // 始终可见，便于观察中轴线
+      carGroup.add(spine);
+    }
+
+    const box=new THREE.Box3().setFromObject(body); const size=new THREE.Vector3(); box.getSize(size);
+
+    // 两个车轮（圆柱），可选显示
+    if(showWheels){
+      const wheelR=0.45*Math.max(spanX*sc/8,0.5), wheelW=extrudeDepth+0.25;
+      const wheelGeo=new THREE.CylinderGeometry(wheelR,wheelR,wheelW,28);
+      const wheelMat=new THREE.MeshStandardMaterial({color:0x1b2330, metalness:0.4, roughness:0.6});
+      const wy=-size.y/2+wheelR*0.7;
+      [-1,1].forEach(s=>{
+        const w=new THREE.Mesh(wheelGeo,wheelMat);
+        w.rotation.x=Math.PI/2;
+        w.position.set(s*size.x*0.28, wy, 0);
+        carGroup.add(w);
+      });
+    }
+
+    // 车顶高度 Roof H 标注：标出车身最高点 + 高度辅助线 + 数值
+    if(showRoofH){
+      const topYc = size.y/2;                  // 居中后车顶 y
+      const halfX = size.x/2, halfZ = size.z/2;
+      const yBase = -size.y/2;                 // 地面
+      const matLine = new THREE.LineBasicMaterial({color:0x1f5fd6});
+      matLine.depthTest=false;
+      // 竖直测量线（车顶到地面，置于车体后侧外缘）
+      const mx = halfX*1.06, mz = halfZ*1.02;
+      const vGeo=new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(mx,yBase,mz), new THREE.Vector3(mx,topYc,mz)
+      ]);
+      const vLine=new THREE.Line(vGeo,matLine); vLine.renderOrder=4; carGroup.add(vLine);
+      // 顶端横向短线
+      const tGeo=new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(mx-0.12,topYc,mz), new THREE.Vector3(mx+0.12,topYc,mz)
+      ]);
+      const tLine=new THREE.Line(tGeo,matLine); tLine.renderOrder=4; carGroup.add(tLine);
+      // 车顶最高点处的水平参考线（贯穿车长，虚线感用细线）
+      const hGeo=new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-halfX,topYc,mz), new THREE.Vector3(halfX,topYc,mz)
+      ]);
+      const matH=new THREE.LineBasicMaterial({color:0x1f5fd6,transparent:true,opacity:0.5}); matH.depthTest=false;
+      const hLine=new THREE.Line(hGeo,matH); hLine.renderOrder=4; carGroup.add(hLine);
+      // 数值贴图标签
+      const roofTxt = (roofHEl && roofHEl.textContent && roofHEl.textContent!=="--") ? roofHEl.textContent : "Roof H";
+      const lbl=makeLabelSprite("Roof H  "+roofTxt);
+      if(lbl){ lbl.position.set(mx+0.55, topYc, mz); carGroup.add(lbl); }
+    }
+
+    // 地面阴影盘
+    const groundGeo=new THREE.CircleGeometry(size.x*0.85,48);
+    const ground=new THREE.Mesh(groundGeo,new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.06}));
+    ground.rotation.x=-Math.PI/2; ground.position.y=-size.y/2-0.02;
+    carGroup.add(ground);
+
+    scene.add(carGroup);
+    return true;
+  }
+  function initThree(){
+    if(!THREE_OK || renderer) return;
+    renderer=new THREE.WebGLRenderer({canvas:canvas3d, antialias:true, alpha:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    scene=new THREE.Scene();
+    camera=new THREE.PerspectiveCamera(38,1,0.1,100);
+    camera.position.set(0,1.2,9);
+    scene.add(new THREE.HemisphereLight(0xffffff,0x9fb2cc,1.05));
+    const key=new THREE.DirectionalLight(0xffffff,0.9); key.position.set(4,7,6); scene.add(key);
+    const rim=new THREE.DirectionalLight(0xbfd2ff,0.5); rim.position.set(-6,3,-4); scene.add(rim);
+
+    // 左键旋转 / 右键平移 / 滚轮缩放
+    canvas3d.addEventListener("contextmenu", e=>e.preventDefault());
+    canvas3d.addEventListener("pointerdown",e=>{
+      dragging=true; dragBtn=e.button; lastX=e.clientX; lastY=e.clientY;
+      canvas3d.style.cursor = (e.button===2) ? "move" : "grabbing";
+    });
+    window.addEventListener("pointerup",()=>{dragging=false; if(canvas3d) canvas3d.style.cursor="grab";});
+    window.addEventListener("pointermove",e=>{
+      if(!dragging)return;
+      const dx=e.clientX-lastX, dy=e.clientY-lastY;
+      if(dragBtn===2){
+        // 右键平移：随缩放距离自适应步长
+        const k=zoom*0.0016;
+        panX+=dx*k; panY-=dy*k;
+      }else{
+        rotY+=dx*0.01; rotX+=dy*0.01;
+        rotX=Math.max(-1.2,Math.min(1.2,rotX));
+      }
+      lastX=e.clientX; lastY=e.clientY;
+    });
+    // 滚轮缩放
+    canvas3d.addEventListener("wheel",e=>{
+      e.preventDefault();
+      zoom*=(1+Math.sign(e.deltaY)*0.08);
+      zoom=Math.max(3.2,Math.min(22,zoom));
+    },{passive:false});
+  }
+
+  function resize3d(){
+    if(!renderer||!layer3d) return;
+    const r=layer3d.getBoundingClientRect();
+    if(r.width<2||r.height<2) return;
+    renderer.setSize(r.width,r.height,false);
+    camera.aspect=r.width/r.height; camera.updateProjectionMatrix();
+  }
+
+  function loop(){
+    raf=requestAnimationFrame(loop);
+    if(!renderer||!carGroup) return;
+    if(autoSpin) rotY+=0.006;
+    carGroup.rotation.x=rotX; carGroup.rotation.y=rotY;
+    // 平移 + 缩放（移动相机）
+    camera.position.set(-panX, 1.2-panY, zoom);
+    camera.lookAt(-panX, 1.2-panY, 0);
+    renderer.render(scene,camera);
+  }
+
+  function show3D(on){
+    if(on){
+      seg3d.classList.add("active"); seg2d.classList.remove("active");
+      if(carSvg) carSvg.style.visibility="hidden";
+      layer3d.classList.remove("hidden");
+      if(!THREE_OK){
+        empty3d.textContent="3D 库未能加载（需要网络）"; empty3d.classList.remove("hidden"); return;
+      }
+      try { initThree(); } catch (err) {
+        empty3d.textContent="当前浏览器无法启用 WebGL，可切回 2D 查看轮廓。";
+        empty3d.classList.remove("hidden"); return;
+      }
+      resize3d();
+      const ok=buildCar();
+      empty3d.classList.toggle("hidden", ok);
+      if(ok && !raf) loop();
+    }else{
+      seg2d.classList.add("active"); seg3d.classList.remove("active");
+      layer3d.classList.add("hidden");
+      if(carSvg) carSvg.style.visibility="";
+    }
+  }
+  seg2d?.addEventListener("click",()=>show3D(false));
+  seg3d?.addEventListener("click",()=>show3D(true));
+
+  // 厚度控制
+  // 厚度细调（滑块，步长 0.01）
+  const depthSlider=$("depth_slider");
+  function setDepth(v){
+    depth=Math.max(0.15,Math.min(1.6,v));
+    if($("depth_readout")) $("depth_readout").textContent=Math.round(depth*100)+"%";
+    if(!layer3d.classList.contains("hidden")) buildCar();
+  }
+  if(depthSlider){
+    depthSlider.addEventListener("input", ()=>setDepth(parseFloat(depthSlider.value)));
+  }
+  $("btn_spin3d")?.addEventListener("click",function(){ autoSpin=!autoSpin; this.classList.toggle("on",autoSpin); });
+  $("btn_wheels")?.addEventListener("click",function(){ showWheels=!showWheels; this.classList.toggle("on",showWheels); if(!layer3d.classList.contains("hidden")) buildCar(); });
+  $("btn_spine")?.addEventListener("click",function(){ showSpine=!showSpine; this.classList.toggle("on",showSpine); if(!layer3d.classList.contains("hidden")) buildCar(); });
+  $("btn_roofh")?.addEventListener("click",function(){ showRoofH=!showRoofH; this.classList.toggle("on",showRoofH); if(!layer3d.classList.contains("hidden")) buildCar(); });
+  $("btn_resetview")?.addEventListener("click",function(){ rotX=defView.rotX; rotY=defView.rotY; panX=defView.panX; panY=defView.panY; zoom=defView.zoom; });
+
+  // ---- 颜色选择 ----
+  function edgeColorFor(hex){
+    // 取比车身深约 30% 的描边色
+    const r=(hex>>16)&255, g=(hex>>8)&255, b=hex&255;
+    const f=0.62;
+    return ((Math.round(r*f))<<16)|((Math.round(g*f))<<8)|(Math.round(b*f));
+  }
+  // 生成一个文字标签精灵（始终面向相机），用于 3D 中的数值标注
+  function makeLabelSprite(text){
+    if(!THREE_OK) return null;
+    const cvs=document.createElement("canvas"); const ctx=cvs.getContext("2d");
+    const fs=44, pad=14; ctx.font="600 "+fs+"px 'JetBrains Mono', monospace";
+    const w=ctx.measureText(text).width+pad*2, h=fs+pad*2;
+    cvs.width=w; cvs.height=h;
+    ctx.font="600 "+fs+"px 'JetBrains Mono', monospace";
+    ctx.fillStyle="rgba(255,255,255,0.92)";
+    if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(0,0,w,h,12); ctx.fill(); }
+    else ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle="#1f5fd6"; ctx.lineWidth=3; if(ctx.roundRect){ctx.stroke();}
+    ctx.fillStyle="#1f5fd6"; ctx.textBaseline="middle"; ctx.fillText(text,pad,h/2);
+    const tex=new THREE.CanvasTexture(cvs); tex.minFilter=THREE.LinearFilter;
+    const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, depthTest:false}));
+    const s=0.0024; spr.scale.set(w*s, h*s, 1); spr.renderOrder=5;
+    return spr;
+  }
+  const presetColors=[
+    "#C7CDD6","#FFFFFF","#1B2330","#2F74F0","#0F3F9E","#1F9D6B",
+    "#E0322F","#C77D12","#7A4DD6","#0FB5B5","#E8B84B","#9AA6B6"
+  ];
+  const swatchWrap=$("swatches"), colorPanel=$("color_panel"), colorDot=$("color_dot");
+  const colorCustom=$("color_custom"), colorHex=$("color_hex"), chkMetal=$("chk_metal");
+
+  function hexToInt(h){ return parseInt(h.replace('#',''),16); }
+  function normHex(h){
+    h=h.trim(); if(h[0]!=='#') h='#'+h;
+    if(/^#[0-9a-fA-F]{6}$/.test(h)) return h.toUpperCase();
+    return null;
+  }
+  function applyColor(hex, fromInputs){
+    const n=normHex(hex); if(!n) return;
+    bodyColor=hexToInt(n);
+    if(colorDot) colorDot.style.background=n;
+    if(colorCustom && !fromInputs?.skipCustom) colorCustom.value=n;
+    if(colorHex && !fromInputs?.skipHex) colorHex.value=n;
+    // 标记选中色板
+    swatchWrap?.querySelectorAll("[data-sw]").forEach(s=>{
+      s.style.outline = (s.dataset.sw.toUpperCase()===n) ? "2px solid var(--blue)" : "none";
+    });
+    if(!layer3d.classList.contains("hidden")) buildCar();
+  }
+  // 建色板
+  if(swatchWrap){
+    presetColors.forEach(c=>{
+      const sw=document.createElement("button");
+      sw.dataset.sw=c;
+      sw.title=c;
+      sw.style.cssText="width:22px;height:22px;border-radius:6px;cursor:pointer;background:"+c+";border:1px solid rgba(0,0,0,.12);outline-offset:1px";
+      sw.addEventListener("click",()=>applyColor(c));
+      swatchWrap.appendChild(sw);
+    });
+  }
+  colorCustom?.addEventListener("input", ()=>applyColor(colorCustom.value, {skipCustom:true}));
+  colorHex?.addEventListener("change", ()=>{ const n=normHex(colorHex.value); if(n) applyColor(n,{skipHex:true}); else colorHex.value="#"+bodyColor.toString(16).padStart(6,'0').toUpperCase(); });
+  chkMetal?.addEventListener("change", ()=>{ bodyMetal=chkMetal.checked; if(!layer3d.classList.contains("hidden")) buildCar(); });
+
+  // 颜色面板开合
+  $("btn_color")?.addEventListener("click",(e)=>{ e.stopPropagation(); colorPanel?.classList.toggle("hidden"); });
+  colorPanel?.addEventListener("click",(e)=>e.stopPropagation());
+  document.addEventListener("click",()=>{ colorPanel?.classList.add("hidden"); });
+  // 初始化选中态
+  applyColor("#C7CDD6");
+
+  window.addEventListener("resize",()=>{ if(!layer3d.classList.contains("hidden")) resize3d(); });
+
+  // 轮廓变化时，若正处于 3D 视图则自动重建
+  if(pathTop){
+    const mo3d=new MutationObserver(()=>{ if(layer3d && !layer3d.classList.contains("hidden")) buildCar(); });
+    mo3d.observe(pathTop,{attributes:true,attributeFilter:["d"]});
+  }
+})();
+</script>
+</body>
+</html>
