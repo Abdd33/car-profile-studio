@@ -231,6 +231,8 @@
     }
 
     /* ===== 2D/3D toggle + 3D controls ===== */
+    /* Keep the SVG measurable for 3D profile sampling while hiding all of its strokes. */
+    #car_svg.behind-3d{ opacity:0; pointer-events:none; }
     .view-seg{
        font-size:11px; font-weight:600;
       padding:4px 11px; border-radius:7px; color:var(--ink-faint);
@@ -1073,7 +1075,7 @@ function drawMatlabPath(xArr, yArr) {
   function exportPreviewPng() {
     const svgEl = document.getElementById("car_svg");
     const clone = svgEl.cloneNode(true);
-    clone.style.visibility = "visible";
+    clone.classList.remove("behind-3d");
     clone.setAttribute("width","400");
     clone.setAttribute("height","200");
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
@@ -1571,9 +1573,9 @@ function drawMatlabPath(xArr, yArr) {
   }
 
   function show3D(on){
+    carSvg.classList.toggle("behind-3d", on);
     if(on){
       seg3d.classList.add("active"); seg2d.classList.remove("active");
-      if(carSvg) carSvg.style.visibility="hidden";
       layer3d.classList.remove("hidden");
       if(!THREE_OK){
         empty3d.textContent="3D 库未能加载（需要网络）"; empty3d.classList.remove("hidden"); return;
@@ -1589,7 +1591,6 @@ function drawMatlabPath(xArr, yArr) {
     }else{
       seg2d.classList.add("active"); seg3d.classList.remove("active");
       layer3d.classList.add("hidden");
-      if(carSvg) carSvg.style.visibility="";
     }
   }
   seg2d?.addEventListener("click",()=>show3D(false));
