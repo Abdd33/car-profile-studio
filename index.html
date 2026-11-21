@@ -226,11 +226,6 @@
       border:1px solid #d6e3fb;
       box-shadow:0 2px 8px -3px rgba(31,95,214,.3), inset 0 1px 0 #fff;
     }
-    .topbar-tag{
-      padding:4px 9px;border-radius:8px;background:#fff;border:1px solid var(--line);
-      color:var(--ink-2);letter-spacing:.02em;
-    }
-    .topbar-tag span{ margin-right:5px;letter-spacing:.12em; }
 
     /* ===== 2D/3D toggle + 3D controls ===== */
     .view-seg{
@@ -308,20 +303,12 @@
     </div>
 
     <div class="leading-tight min-w-0">
-      <div class="label-eyebrow flex items-center gap-1.5">
-        <span style="color:var(--blue)">Morphing Studio</span>
-        <span style="color:var(--ink-faint)">/ Side-Profile Generator</span>
-      </div>
       <div class="text-[15px] font-semibold font-display tracking-tight truncate">智能汽车侧面轮廓感性生成系统</div>
     </div>
   </div>
 
-  <!-- right: meta + status -->
+  <!-- status -->
   <div class="flex items-center gap-2.5">
-    <div class="hidden lg:flex items-center gap-2 font-mono text-[11px]">
-      <span class="topbar-tag"><span style="color:var(--ink-faint)">PROJ</span> EV-COUPE-X7</span>
-      <span class="topbar-tag"><span style="color:var(--ink-faint)">BUILD</span> 2.4.0</span>
-    </div>
     <span class="px-2.5 py-1 rounded-full chip text-[11px] font-medium font-mono flex items-center gap-1.5">
       <span class="status-dot"></span> 算法已就绪
     </span>
@@ -383,7 +370,6 @@
   <!-- ===== Left controls (ORIGINAL Sidebar) ===== -->
   <section class="w-[300px] flex-none hairline border-r bg-white/55 p-5 flex flex-col gap-5 overflow-y-auto reveal" style="animation-delay:.04s">
     <div>
-      <div class="label-eyebrow mb-1.5">Kansei Control</div>
       <h2 class="text-[15px] font-semibold font-display">感性意象控制</h2>
       <p class="text-xs leading-relaxed mt-1.5" style="color:var(--ink-2)">
         通过四组感性词对滑块，实时驱动车侧轮廓线的参数化形变。
@@ -493,7 +479,6 @@
     <div class="flex-1 p-5 hairline border-b flex flex-col gap-3.5" style="min-height:0;background:linear-gradient(180deg,#fbfcfe,#f3f6fa)">
       <div class="flex items-center justify-between gap-3">
         <div>
-          <div class="label-eyebrow mb-1">Surrogate Preview</div>
           <h2 class="text-[15px] font-semibold font-display">代理模型 · 车侧轮廓预览</h2>
         </div>
         <div class="flex items-center gap-1.5">
@@ -636,7 +621,6 @@
     <div id="pareto_inner" class="p-5 flex flex-col gap-4 h-full overflow-y-auto">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <div class="label-eyebrow mb-1.5">Pareto Frontier</div>
           <h2 class="text-[15px] font-semibold font-display">帕累托前沿 · 情感-阻力分布</h2>
         </div>
         <button id="btn_collapse_pareto" class="btn-ghost rounded-lg p-1.5 flex-none" title="收起面板">
@@ -659,9 +643,6 @@
           <text x="10" y="75" fill="#8b96a8" font-size="9" text-anchor="middle" transform="rotate(-90 10 75)">阻力系数 (Cd)</text>
           <g id="pareto_points" fill="#1f5fd6" stroke="#ffffff" stroke-width="1.2" cursor="pointer"></g>
         </svg>
-        <div class="absolute inset-x-3 bottom-2 text-[10px] text-right font-mono" style="color:var(--ink-faint)">
-          <span id="pareto_hint">点击「开始优化」后显示本次帕累托前沿</span>
-        </div>
       </div>
 
       <!-- current scheme -->
@@ -797,7 +778,6 @@
 
   // 用后端返回的帕累托数据重绘右侧散点图（横轴感性得分，纵轴 Cd）
   const SVG_PAD_LEFT = 24, SVG_PAD_RIGHT = 210, SVG_PAD_TOP = 10, SVG_PAD_BOTTOM = 140;
-  const paretoHintEl = document.getElementById("pareto_hint");
 
   function renderParetoCurve(paretoCd, paretoEmo) {
     paretoGroup.innerHTML = "";
@@ -824,7 +804,6 @@
       paretoGroup.appendChild(circle);
     }
     paretoCircles = Array.from(paretoGroup.querySelectorAll("circle"));
-    if (paretoHintEl) paretoHintEl.textContent = "本次优化帕累托前沿，可点击或拖动滑块切换方案";
   }
 
   // 发送给后端并更新轮廓与帕累托图
