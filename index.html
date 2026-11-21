@@ -200,6 +200,9 @@
     /* collapse animation for right panel */
     #pareto_section{ transition:width .32s cubic-bezier(.2,.7,.2,1), padding .32s ease, opacity .25s ease; }
     #project_section{ transition:width .32s cubic-bezier(.2,.7,.2,1); }
+    #project_section.is-collapsed{ width:46px; }
+    #project_section.is-collapsed #project_inner,
+    #project_section:not(.is-collapsed) #project_rail{ display:none; }
 
     /* ===== topbar ===== */
     .topbar{
@@ -292,7 +295,7 @@
 <header class="topbar layer flex items-center justify-between px-5">
   <!-- left: collapse toggle + brand -->
   <div class="flex items-center gap-3.5 min-w-0">
-    <button id="btn_toggle_project" class="topbar-icon-btn" title="收起 / 展开 项目栏">
+    <button id="btn_toggle_project" class="topbar-icon-btn" title="收起 / 展开 项目栏" aria-controls="project_inner" aria-expanded="false">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="4" width="18" height="16" rx="2.5"/><line x1="9" y1="4" x2="9" y2="20"/>
       </svg>
@@ -319,7 +322,7 @@
 <main class="flex flex-1 overflow-hidden layer">
 
   <!-- ===== Project meta sidebar (collapsible) ===== -->
-  <aside id="project_section" class="w-[208px] flex-none hairline border-r bg-white/70 overflow-hidden reveal">
+  <aside id="project_section" class="is-collapsed w-[208px] flex-none hairline border-r bg-white/70 overflow-hidden reveal">
     <div id="project_inner" class="p-4 flex flex-col gap-4 h-full overflow-y-auto">
       <div>
         <div class="flex items-center justify-between mb-2">
@@ -359,8 +362,8 @@
     </div>
 
     <!-- collapsed rail -->
-    <div id="project_rail" class="collapsed-rail hidden" title="展开项目栏">
-      <button id="btn_expand_project" class="btn-ghost rounded-lg p-1.5">
+    <div id="project_rail" class="collapsed-rail" title="展开项目栏">
+      <button id="btn_expand_project" class="btn-ghost rounded-lg p-1.5" aria-label="展开项目栏">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
       <div class="font-mono text-[10px]" style="writing-mode:vertical-rl;color:var(--ink-faint);letter-spacing:.2em">PROJECT 项目信息</div>
@@ -505,8 +508,8 @@
         <svg id="car_svg" viewBox="0 0 400 200" class="w-full h-full" preserveAspectRatio="xMidYMid meet">
           <defs>
             <clipPath id="clipAboveChassis"><rect id="clipRectChassis" x="0" y="0" width="400" height="200"/></clipPath>
-            <pattern id="studioGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-              <path d="M20 0 H0 V20" fill="none" stroke="#e3e9f2" stroke-width="0.7"/>
+            <pattern id="studioGrid" width="10" height="10" patternUnits="userSpaceOnUse">
+              <path d="M10 0 H0 V10" fill="none" stroke="#c5d2e2" stroke-opacity="0.38" stroke-width="0.32"/>
             </pattern>
           </defs>
           <rect x="0" y="0" width="400" height="200" fill="url(#studioGrid)"/>
@@ -552,8 +555,8 @@
           <!-- 底部右侧：厚度细调滑块 -->
           <div class="absolute right-3 bottom-3 flex items-center gap-2.5 px-3 py-2 rounded-xl" style="z-index:16;background:rgba(255,255,255,.92);border:1px solid var(--line);backdrop-filter:blur(8px)">
             <span class="text-[10px] font-mono whitespace-nowrap" style="color:var(--ink-faint)">厚度</span>
-            <input id="depth_slider" type="range" min="0.15" max="1.6" step="0.01" value="0.6" style="width:130px"/>
-            <span class="view3d-readout font-mono" id="depth_readout" style="min-width:42px">60%</span>
+            <input id="depth_slider" type="range" min="0.15" max="1.6" step="0.01" value="0.39" style="width:130px"/>
+            <span class="view3d-readout font-mono" id="depth_readout" style="min-width:42px">39%</span>
           </div>
 
           <div class="absolute left-3 top-3 text-[10px] font-mono px-2 py-1 rounded-md" style="z-index:16;background:rgba(255,255,255,.9);border:1px solid var(--line);color:var(--ink-faint)">
@@ -1278,26 +1281,17 @@ function drawMatlabPath(xArr, yArr) {
   rail?.addEventListener("click",(e)=>{ if(e.target===rail) collapse(false); });
 
   /* ---------- 左侧项目栏 收起/展开 ---------- */
-  const projSection=$("project_section"), projInner=$("project_inner"), projRail=$("project_rail");
-  function collapseProject(c){
-    if(!projSection) return;
-    if(c){
-      projSection.style.width="46px";
-      if(projInner) projInner.style.display="none";
-      if(projRail) projRail.classList.remove("hidden");
-    }else{
-      projSection.style.width="208px";
-      if(projInner) projInner.style.display="";
-      if(projRail) projRail.classList.add("hidden");
-    }
+  const projSection=$("project_section"), projRail=$("project_rail"), projectToggle=$("btn_toggle_project");
+  function collapseProject(collapsed){
+    projSection.classList.toggle("is-collapsed", collapsed);
+    projectToggle.setAttribute("aria-expanded", String(!collapsed));
   }
   $("btn_collapse_project")?.addEventListener("click", ()=>collapseProject(true));
   $("btn_expand_project")?.addEventListener("click", ()=>collapseProject(false));
   projRail?.addEventListener("click",(e)=>{ if(e.target===projRail) collapseProject(false); });
   // 顶部按钮:切换项目栏（依据实际状态，避免与侧栏按钮不同步）
-  $("btn_toggle_project")?.addEventListener("click", ()=>{
-    const isCollapsed = projSection && projSection.style.width === "46px";
-    collapseProject(!isCollapsed);
+  projectToggle.addEventListener("click", ()=>{
+    collapseProject(!projSection.classList.contains("is-collapsed"));
   });
 
   /* ---------- 工作流步骤演示弹层 ---------- */
@@ -1377,7 +1371,9 @@ function drawMatlabPath(xArr, yArr) {
   const seg2d=$("btn_view_2d"), seg3d=$("btn_view_3d");
 
   let renderer, scene, camera, carGroup, raf=null;
-  let rotX=-0.18, rotY=-0.55, autoSpin=false, depth=0.6, dragging=false, lastX=0, lastY=0;
+  const depthSlider=$("depth_slider");
+  let depth=depthSlider.valueAsNumber;
+  let rotX=-0.18, rotY=-0.55, autoSpin=false, dragging=false, lastX=0, lastY=0;
   let dragBtn=0, panX=0, panY=0, zoom=9, showSpine=true;   // dragBtn:0左键旋转 2右键平移; zoom=相机距离; showSpine 中轴红线
   const ZOOM0=9, defView={rotX:-0.18,rotY:-0.55,panX:0,panY:0,zoom:9};
   let bodyColor=0xc7cdd6, bodyMetal=false;
@@ -1601,7 +1597,6 @@ function drawMatlabPath(xArr, yArr) {
 
   // 厚度控制
   // 厚度细调（滑块，步长 0.01）
-  const depthSlider=$("depth_slider");
   function setDepth(v){
     depth=Math.max(0.15,Math.min(1.6,v));
     if($("depth_readout")) $("depth_readout").textContent=Math.round(depth*100)+"%";
