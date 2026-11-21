@@ -117,6 +117,7 @@
       border:1px solid #cfe0fb;
       transition:all .14s ease;
     }
+    #btn_update_preview:disabled{opacity:.5;cursor:default}
     .btn-blueghost:hover{ background:#dfeafd; }
     .btn-blueghost:active{ transform:translateY(1px); }
 
@@ -507,7 +508,7 @@
   <!-- ===== Center workspace (ORIGINAL) ===== -->
   <section class="flex-1 min-w-0 flex flex-col hairline border-r reveal" style="animation-delay:.08s">
     <!-- preview -->
-    <div class="flex-1 p-5 hairline border-b flex flex-col gap-3.5" style="background:linear-gradient(180deg,#fbfcfe,#f3f6fa)">
+    <div class="flex-1 p-5 hairline border-b flex flex-col gap-3.5" style="min-height:0;background:linear-gradient(180deg,#fbfcfe,#f3f6fa)">
       <div class="flex items-center justify-between gap-3">
         <div>
           <div class="label-eyebrow mb-1">Surrogate Preview</div>
@@ -618,13 +619,17 @@
     </div>
 
     <!-- balance slider -->
-    <div class="p-5 flex flex-col gap-3.5 bg-white/55">
+    <div class="p-5 flex flex-col gap-3.5 bg-white/55" style="flex-shrink:0">
       <div class="flex justify-between items-center">
         <div>
           <div class="label-eyebrow mb-1">Kansei ⇄ Engineering</div>
           <h2 class="text-[15px] font-semibold font-display">感性-工程平衡控制</h2>
         </div>
-        <span class="text-[11px] font-mono" style="color:var(--ink-faint)">滑块位置 ⇄ 帕累托代表样本</span>
+        <button id="btn_update_preview" type="button" disabled
+          class="btn-blueghost whitespace-nowrap inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold py-2.5 px-3 font-display">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          更新方案预览
+        </button>
       </div>
       <div class="mt-1">
         <div class="flex justify-between text-[11px] mb-2" style="color:var(--ink-2)">
@@ -634,17 +639,12 @@
           <div class="absolute inset-y-2 left-0 right-0 rounded-full overflow-hidden track">
             <div class="absolute inset-0" style="background:linear-gradient(90deg,rgba(31,95,214,.85),rgba(47,116,240,.6),rgba(199,125,18,.55))"></div>
           </div>
-          <input id="balance_slider" type="range" min="0" max="100" value="50" class="relative z-10 w-full" />
+          <input id="balance_slider" aria-label="感性与工程权衡" type="range" min="0" max="0" value="0" step="1" disabled class="relative z-10 w-full" />
         </div>
         <div class="mt-2 flex justify-between text-[11px] font-mono" style="color:var(--ink-2)">
           <span>情感得分 <span id="emo_score_bottom" style="color:var(--blue)">--</span></span>
           <span>Cd <span id="cd_estimate_bottom" style="color:var(--amber)">--</span></span>
         </div>
-        <button id="btn_update_preview" type="button"
-          class="btn-blueghost mt-3.5 w-full inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold py-2.5 px-3 font-display">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          更新预览界面
-        </button>
       </div>
     </div>
   </section>
@@ -745,7 +745,7 @@
 <!-- 简单交互脚本（仅用于 UI 效果，非真实计算） -->
 <script src="./engine.js"></script>
 <script src="./assets/rhino3dm.min.js"></script>
-<script src="./browser.js"></script>
+<script src="./browser.js?v=2"></script>
 <script>
   const SLIDER_MIN = -3;
   const SLIDER_MAX = 3;
@@ -795,8 +795,6 @@
   let activePointCircle = null;
   /** 本次优化返回的帕累托解设计参数，每项为 17 维数组，用于切换方案时请求对应轮廓 */
   let currentParetoDesigns = [];
-  /** 当前已选中的帕累托索引，用于避免重复请求同一轮廓 */
-  let lastContourIndex = -1;
 
   function getSliderValues() {
     return {
@@ -870,33 +868,19 @@
     };
 
     try {
+        await loadProfileModel();
         const data = await generateDesigns(payload.scores, generation => {
             progressBar.style.width = (5 + generation * 1.8) + "%";
             document.getElementById("opt_stage").textContent = "正在优化 · 第 " + generation + " / 50 代";
         });
 
         if (data.success) {
-            drawMatlabPath(data.x, data.y);
-            // 更新情感得分、Cd、车高、轴距
-            if (data.emo_score != null) {
-                emoTopEl.textContent = Number(data.emo_score).toFixed(5);
-                emoBottomEl.textContent = Number(data.emo_score).toFixed(5);
-            }
-            if (data.cd != null) {
-                cdTopEl.textContent = Number(data.cd).toFixed(4);
-                cdBottomEl.textContent = Number(data.cd).toFixed(4);
-            }
-            if (data.roof_h != null) roofHEl.textContent = Number(data.roof_h).toFixed(3) + " m";
-            if (data.wheelbase != null) wheelbaseEl.textContent = Number(data.wheelbase).toFixed(3) + " m";
-            // 用本次优化的帕累托前沿重绘右侧曲线，并保存设计参数供切换方案时请求轮廓
-            if (data.pareto_cd && data.pareto_emo && data.pareto_cd.length && data.pareto_emo.length) {
-                currentParetoDesigns = Array.isArray(data.pareto_designs) ? data.pareto_designs : [];
-                lastContourIndex = -1;
-                renderParetoCurve(data.pareto_cd, data.pareto_emo);
-                balanceSlider.value = "0";
-                activateParetoByIndex(0);
-                // 第 0 个方案轮廓已由上面 drawMatlabPath(data.x, data.y) 绘制，这里仍会调用 updateContourForParetoIndex(0) 以保持一致
-            }
+            currentParetoDesigns = data.pareto_designs;
+            renderParetoCurve(data.pareto_cd, data.pareto_emo);
+            balanceSlider.max = String(currentParetoDesigns.length - 1);
+            balanceSlider.disabled = currentParetoDesigns.length < 2;
+            btnUpdatePreview.disabled = false;
+            previewScheme(0);
             progressBar.style.width = "100%";
             setTimeout(() => {
                 btnOptimizeText.textContent = "优化完成";
@@ -1009,11 +993,17 @@ function drawMatlabPath(xArr, yArr) {
     currentWordsEl.textContent = words.join(" · ");
   }
 
-  // 高亮某个帕累托点，更新右侧摘要与中部 emo/cd（不自动请求轮廓，需点击「更新预览界面」）
-  function activateParetoByIndex(idx) {
-    if (paretoCircles.length === 0) return;
-    const clampedIdx = Math.max(0, Math.min(paretoCircles.length - 1, idx));
-    const circle = paretoCircles[clampedIdx];
+  // 将预览、导出坐标、指标与帕累托选点同步到同一方案。
+  function previewScheme(idx) {
+    const design = currentParetoDesigns[idx];
+    if (!design) return;
+    const circle = paretoCircles[idx];
+    const shape = contour(design);
+    drawMatlabPath(shape.x, shape.y);
+    roofHEl.textContent = shape.roof_h.toFixed(3) + " m";
+    wheelbaseEl.textContent = shape.wheelbase.toFixed(3) + " m";
+    balanceSlider.value = String(currentParetoDesigns.length - 1 - idx);
+    balanceSlider.setAttribute("aria-valuetext", "方案 " + (idx + 1));
 
     const id = circle.getAttribute("data-id");
     const emo = circle.getAttribute("data-emo");
@@ -1022,6 +1012,8 @@ function drawMatlabPath(xArr, yArr) {
     currentIdEl.textContent = id;
     currentEmoEl.textContent = emo;
     currentCdEl.textContent = cd;
+    emoTopEl.textContent = emo;
+    cdTopEl.textContent = cd;
     emoBottomEl.textContent = emo;
     cdBottomEl.textContent = cd;
 
@@ -1034,62 +1026,18 @@ function drawMatlabPath(xArr, yArr) {
     activePointCircle = circle;
   }
 
-  // 返回当前平衡滑块对应的帕累托点索引（0 ~ paretoCircles.length-1）
-  function getCurrentParetoIndex() {
-    if (paretoCircles.length === 0) return 0;
-    const t = parseFloat(balanceSlider.value) / 100;
-    return Math.round(t * (paretoCircles.length - 1));
+  function previewSliderSelection() {
+    // 候选方案按 Cd 升序排列，右端对应最低风阻。
+    previewScheme(Number(balanceSlider.max) - balanceSlider.valueAsNumber);
   }
 
-  // 根据帕累托点索引请求该方案轮廓并重绘（供「更新预览界面」按钮调用）
-  async function updateContourForParetoIndex(idx) {
-    if (!currentParetoDesigns.length || idx < 0 || idx >= currentParetoDesigns.length) return;
-    let design = currentParetoDesigns[idx];
-    if (!design) return;
-    design = Array.isArray(design) ? design.flat() : design;
-    if (design.length !== 17) return;
-    try {
-      const data = await getContour(design);
-      if (data.success && data.x && data.y) {
-        drawMatlabPath(data.x, data.y);
-        if (data.roof_h != null) roofHEl.textContent = Number(data.roof_h).toFixed(3) + " m";
-        if (data.wheelbase != null) wheelbaseEl.textContent = Number(data.wheelbase).toFixed(3) + " m";
-        emoTopEl.textContent = paretoCircles[idx].dataset.emo;
-        cdTopEl.textContent = paretoCircles[idx].dataset.cd;
-        lastContourIndex = idx;
-      }
-    } catch (err) {
-      console.error("获取方案轮廓失败:", err);
-    }
-  }
-
-  // 滑块拖动 -> 映射到帕累托点索引
-  balanceSlider.addEventListener("input", () => {
-    if (paretoCircles.length === 0) return;
-    const t = balanceSlider.value / 100; // 0~1
-    const idx = Math.round(t * (paretoCircles.length - 1));
-    activateParetoByIndex(idx);
-  });
-
-  // 点击帕累托点 -> 高亮 & 同步滑块位置（不自动更新轮廓，需点「更新预览界面」）
-  paretoGroup.addEventListener("click", (e) => {
-    if (e.target.tagName.toLowerCase() !== "circle") return;
-    const circle = e.target;
-    const idx = paretoCircles.indexOf(circle);
-    if (idx === -1) return;
-    const t = idx / Math.max(1, paretoCircles.length - 1);
-    balanceSlider.value = String(t * 100);
-    activateParetoByIndex(idx);
-  });
-
-  // 「更新预览界面」按钮：按当前平衡滑块选中的方案请求轮廓并更新中部预览
   const btnUpdatePreview = document.getElementById("btn_update_preview");
-  if (btnUpdatePreview) {
-    btnUpdatePreview.addEventListener("click", () => {
-      const idx = getCurrentParetoIndex();
-      updateContourForParetoIndex(idx);
-    });
-  }
+  balanceSlider.addEventListener("input", previewSliderSelection);
+  btnUpdatePreview.addEventListener("click", previewSliderSelection);
+  paretoGroup.addEventListener("click", event => {
+    const idx = paretoCircles.indexOf(event.target);
+    if (idx >= 0) previewScheme(idx);
+  });
 
   // 左侧感性滑块变动 -> 更新车身轮廓 & 顶部情感/Cd
   Object.values(sliders).forEach(input => {
@@ -1201,10 +1149,7 @@ function drawMatlabPath(xArr, yArr) {
   // 初始化：车身轮廓 + 感性描述（帕累托图在首次点击「开始优化」后由后端数据填充）
   updateCarShape();
   updateWords();
-  if (paretoCircles.length > 0) {
-    activateParetoByIndex(0);
-    balanceSlider.value = "0";
-  }
+
 </script>
 <!-- ============ UX 增强脚本（纯附加，不改动原有逻辑/后端调用） ============ -->
 <script>
@@ -1498,7 +1443,7 @@ function drawMatlabPath(xArr, yArr) {
     const pts = sampleProfile();
     if(!pts){ return false; }
 
-    if(carGroup){ scene.remove(carGroup); carGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
+    if(carGroup){ scene.remove(carGroup); carGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material){o.material.map?.dispose(); o.material.dispose();} }); }
     carGroup = new THREE.Group();
 
     // 归一化到以原点为中心，整体跨度约 4 单位

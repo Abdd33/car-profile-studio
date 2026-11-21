@@ -15,13 +15,12 @@ async function generateDesigns(scores, progress) {
   }
 }
 let profileModelReady;
-async function getContour(design) {
+function loadProfileModel() {
   profileModelReady ??= fetch('./assets/model.json').then(async response => {
     if (!response.ok) throw Error('轮廓模型加载失败');
     setup(await response.json());
   }).catch(error => { profileModelReady = undefined; throw error; });
-  await profileModelReady;
-  return contour(design);
+  return profileModelReady;
 }
 async function cadBlob(format, xs, ys) {
   const pts = xs.map((x,i)=>[x,ys[i],0]).filter((p,i,all) =>
